@@ -1,0 +1,1198 @@
+// Mashkoor platform — Phase 0 foundation schema.
+// Business modules (customers, leads, bookings, partners, wallet, ...) are added in later phases.
+// Conventions: docs/PROJECT_PLAN.md §7.1
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Identity & access ───────────────────────────────────────────────────────
+
+enum UserType {
+  STAFF
+  PARTNER
+  CUSTOMER
+}
+
+enum Role {
+  SUPER_ADMIN
+  OPS_MANAGER
+  SALES_AGENT
+  PARTNER_ADMIN
+  PARTNER_USER
+  CUSTOMER
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  DISABLED
+}
+
+model User {
+  id           String     @id @default(uuid(7)) @db.Uuid
+  type         UserType
+  role         Role
+  name         String
+  email        String     @unique
+  phone        String?
+  passwordHash String?
+  status       UserStatus @default(INVITED)
+  /// Why the account is DISABLED: "PARTNER_SUSPENDED" (turned off with its agency, restored on reinstatement) or "MANUAL".
+  disabledReason String?
+  /// Set for PARTNER users (Partner model arrives in Phase 3).
+  partnerId    String?    @db.Uuid
+  /// Set for CUSTOMER users (Customer model arrives in Phase 1).
+  customerId   String?    @db.Uuid
+  settings     Json       @default("{}")
+  lastLoginAt  DateTime?
+  failedLogins Int        @default(0)
+  lockedUntil  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  createdById  String?    @db.Uuid
+
+  refreshTokens RefreshToken[]
+  tokens        UserToken[]
+
+  ownedCustomers    Customer[]        @relation("CustomerOwner")
+  ownedLeads        Lead[]            @relation("LeadOwner")
+  activities        Activity[]        @relation("ActivityAuthor")
+  assignedTasks     Task[]            @relation("TaskAssignee")
+  createdTasks      Task[]            @relation("TaskCreator")
+  ownedBookings     Booking[]         @relation("BookingOwner")
+  ownedItineraries  Itinerary[]       @relation("ItineraryOwner")
+  tripUpdates       TripUpdate[]      @relation("TripUpdateAuthor")
+  uploadedDocuments BookingDocument[] @relation("DocumentUploader")
+  createdContacts   Contact[]         @relation("ContactCreator")
+  partner           Partner?          @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+
+  @@index([type, status])
+  @@index([partnerId])
+}
+
+enum Portal {
+  admin
+  b2b
+  b2c
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portal    Portal
+  tokenHash String    @unique
+  /// All tokens issued from one login share a family; reuse of a revoked token revokes the family.
+  familyId  String    @db.Uuid
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ipHash    String?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+enum UserTokenPurpose {
+  INVITE
+  PASSWORD_RESET
+  LOGIN_OTP
+}
+
+model UserToken {
+  id        String           @id @default(uuid(7)) @db.Uuid
+  userId    String           @db.Uuid
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose   UserTokenPurpose
+  tokenHash String
+  attempts  Int              @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, purpose])
+  @@index([tokenHash])
+}
+
+// ─── CRM · Customers (M01) ───────────────────────────────────────────────────
+
+enum CustomerType {
+  INDIVIDUAL
+  FAMILY
+  GROUP
+  CORPORATE
+}
+
+enum ContactChannel {
+  WHATSAPP
+  CALL
+  EMAIL
+}
+
+enum LeadSource {
+  WEBSITE
+  WHATSAPP
+  INSTAGRAM
+  PHONE
+  WALK_IN
+  REFERRAL
+  B2B
+  B2C_PORTAL
+  OTHER
+}
+
+model Customer {
+  id                 String         @id @default(uuid(7)) @db.Uuid
+  refNo              String         @unique
+  type               CustomerType   @default(INDIVIDUAL)
+  fullName           String
+  /// E.164, e.g. +919876543210
+  phone              String
+  altPhone           String?
+  email              String?
+  whatsappOptIn      Boolean        @default(true)
+  preferredChannel   ContactChannel @default(WHATSAPP)
+  city               String?
+  state              String?
+  country            String         @default("IN")
+  tags               String[]       @default([])
+  source             LeadSource     @default(OTHER)
+  /// Set for customers created by a B2B partner.
+  partnerId          String?        @db.Uuid
+  partner            Partner?       @relation("PartnerCustomers", fields: [partnerId], references: [id], onDelete: SetNull)
+  ownerId            String?        @db.Uuid
+  owner              User?          @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  notes              String?
+  marketingConsentAt DateTime?
+  /// When this record was merged into another customer.
+  mergedIntoId       String?        @db.Uuid
+  deletedAt          DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  createdById        String?        @db.Uuid
+
+  travelers   Traveler[]
+  leads       Lead[]
+  activities  Activity[]
+  tasks       Task[]
+  bookings    Booking[]
+  itineraries Itinerary[]
+
+  @@index([phone])
+  @@index([email])
+  @@index([ownerId])
+  @@index([partnerId])
+  @@index([deletedAt, createdAt])
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum TravelerRelation {
+  SELF
+  SPOUSE
+  CHILD
+  PARENT
+  SIBLING
+  MAHRAM
+  OTHER
+}
+
+model Traveler {
+  id                 String           @id @default(uuid(7)) @db.Uuid
+  customerId         String           @db.Uuid
+  customer           Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  title              String?
+  firstName          String
+  lastName           String?
+  gender             Gender?
+  dob                DateTime?        @db.Date
+  nationality        String           @default("IN")
+  relation           TravelerRelation @default(SELF)
+  /// AES-256-GCM ciphertext (FieldEncryptionService). Never stored in plain text.
+  passportNoEnc      String?
+  /// Last 4 characters, for display and search without decrypting.
+  passportLast4      String?
+  passportExpiry     DateTime?        @db.Date
+  passportIssuePlace String?
+  mealPreference     String?
+  specialNeeds       String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  bookings Booking[] @relation("BookingTravelers")
+
+  @@index([customerId])
+}
+
+// ─── CRM · Leads (M02) ───────────────────────────────────────────────────────
+
+enum ProductType {
+  HOLIDAY
+  VISA
+  FLIGHT
+  HOTEL
+  PACKAGE
+  OTHER
+}
+
+/// How the trip is run — separate from ProductType (what kind of travel product it is).
+enum TripType {
+  /// Free Independent Traveller: one customer/family, their own dates and itinerary.
+  FIT
+  /// A fixed-departure group; travellers join a shared plan and date.
+  GROUP_TOUR
+  /// A private multi-day plan built to order.
+  CUSTOMIZED
+}
+
+enum LeadStage {
+  NEW
+  CONTACTED
+  QUOTATION
+  WAITING_PAYMENT
+  WON
+  LOST
+}
+
+enum LeadPriority {
+  HOT
+  WARM
+  COLD
+}
+
+enum LostReason {
+  PRICE
+  DATES_CHANGED
+  BOOKED_ELSEWHERE
+  NOT_REACHABLE
+  NOT_SERIOUS
+  OTHER
+}
+
+model Lead {
+  id              String       @id @default(uuid(7)) @db.Uuid
+  refNo           String       @unique
+  customerId      String?      @db.Uuid
+  customer        Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contactName     String
+  phone           String
+  email           String?
+  source          LeadSource
+  sourceDetail    String?
+  /// UTM, landing page and referrer captured at intake.
+  attribution     Json?
+  productType     ProductType  @default(OTHER)
+  /// How the trip would be run — FIT, a group tour, or a custom private plan.
+  tripType        TripType     @default(FIT)
+  destination     String?
+  travelFrom      DateTime?    @db.Date
+  travelTo        DateTime?    @db.Date
+  flexibleDates   Boolean      @default(false)
+  adults          Int          @default(1)
+  children        Int          @default(0)
+  infants         Int          @default(0)
+  /// What the customer said they can spend.
+  budgetMin       Int?
+  budgetMax       Int?
+  /// What we told them, verbally, before any formal itinerary exists.
+  quotedAmount    Int?
+  requirements    String?
+  stage           LeadStage    @default(NEW)
+  lostReason      LostReason?
+  priority        LeadPriority @default(WARM)
+  ownerId         String?      @db.Uuid
+  owner           User?        @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  /// Set for enquiries raised by a B2B partner.
+  partnerId       String?      @db.Uuid
+  partner         Partner?     @relation("PartnerLeads", fields: [partnerId], references: [id], onDelete: SetNull)
+  nextFollowUpAt  DateTime?
+  lastContactedAt DateTime?
+  stageChangedAt  DateTime     @default(now())
+  /// Linked booking once won (Phase 2).
+  wonBookingId    String?      @db.Uuid
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  createdById     String?      @db.Uuid
+
+  activities  Activity[]
+  tasks       Task[]
+  bookings    Booking[]
+  itineraries Itinerary[]
+
+  @@index([stage, ownerId])
+  @@index([phone])
+  @@index([customerId])
+  @@index([nextFollowUpAt])
+  @@index([createdAt])
+}
+
+// ─── CRM · Activities & tasks (M03) ──────────────────────────────────────────
+
+enum ActivityEntityType {
+  LEAD
+  CUSTOMER
+}
+
+enum ActivityType {
+  NOTE
+  CALL
+  WHATSAPP
+  EMAIL
+  MEETING
+  STAGE_CHANGE
+  STATUS_CHANGE
+  SYSTEM
+}
+
+model Activity {
+  id          String             @id @default(uuid(7)) @db.Uuid
+  entityType  ActivityEntityType
+  entityId    String             @db.Uuid
+  type        ActivityType
+  body        String
+  meta        Json?
+  /// Denormalised so the Customer 360 timeline is one query.
+  customerId  String?            @db.Uuid
+  customer    Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  leadId      String?            @db.Uuid
+  lead        Lead?              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  createdById String?            @db.Uuid
+  createdBy   User?              @relation("ActivityAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime           @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([customerId, createdAt])
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
+model Task {
+  id          String       @id @default(uuid(7)) @db.Uuid
+  title       String
+  description String?
+  dueAt       DateTime
+  status      TaskStatus   @default(OPEN)
+  priority    LeadPriority @default(WARM)
+  assigneeId  String       @db.Uuid
+  assignee    User         @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  leadId      String?      @db.Uuid
+  lead        Lead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  customerId  String?      @db.Uuid
+  customer    Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  completedAt DateTime?
+  createdById String?      @db.Uuid
+  createdBy   User?        @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([assigneeId, status, dueAt])
+  @@index([leadId])
+  @@index([customerId])
+}
+
+// ─── Channels · Inbound events ───────────────────────────────────────────────
+
+enum InboundChannel {
+  WEBSITE
+  WEBSITE_BOOKING
+  WHATSAPP
+  INSTAGRAM
+  META_LEAD_AD
+  PAYMENT_GATEWAY
+}
+
+enum InboundEventStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+/// Raw inbound payloads, stored before processing so nothing is lost and repeats are ignored (AD-8).
+model InboundEvent {
+  id          String             @id @default(uuid(7)) @db.Uuid
+  channel     InboundChannel
+  externalId  String?
+  payload     Json
+  status      InboundEventStatus @default(RECEIVED)
+  error       String?
+  leadId      String?            @db.Uuid
+  processedAt DateTime?
+  createdAt   DateTime           @default(now())
+
+  @@unique([channel, externalId])
+  @@index([status, createdAt])
+}
+
+// ─── Catalog (M04) ───────────────────────────────────────────────────────────
+
+model Destination {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  slug           String   @unique
+  name           String
+  country        String
+  region         String?
+  summary        String?
+  description    String?
+  heroImageUrl   String?
+  highlights     String[] @default([])
+  seoTitle       String?
+  seoDescription String?
+  published      Boolean  @default(false)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdById    String?  @db.Uuid
+
+  packages Package[]
+
+  @@index([published, sortOrder])
+}
+
+/// One line of a package's day-by-day plan, and one selling price tier. Kept as JSON on the
+/// package (not separate tables) — content is edited as a whole page, never queried by field.
+/// PackageDayPlan: { day: number; title: string; description: string }
+/// PackageHotelStay: { city: string; hotelName: string; nights: number; roomType: string; mealPlan: string }
+/// PackagePriceTier: { label: string; adultPrice: number; childPrice: number | null; currency: string; validFrom: string | null; validTo: string | null }
+model Package {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  refCode        String       @unique
+  slug           String       @unique
+  title          String
+  productType    ProductType
+  destinationId  String?      @db.Uuid
+  destination    Destination? @relation(fields: [destinationId], references: [id], onDelete: SetNull)
+  summary        String?
+  description    String?
+  nights         Int          @default(0)
+  days           Int          @default(0)
+  heroImageUrl   String?
+  galleryUrls    String[]     @default([])
+  highlights     String[]     @default([])
+  inclusions     String[]     @default([])
+  exclusions     String[]     @default([])
+  itinerary      Json         @default("[]")
+  hotels         Json         @default("[]")
+  priceTiers     Json         @default("[]")
+  seoTitle       String?
+  seoDescription String?
+  published      Boolean      @default(false)
+  featured       Boolean      @default(false)
+  sortOrder      Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  createdById    String?      @db.Uuid
+
+  bookingItems BookingItem[]
+  departures   PackageDeparture[]
+
+  @@index([published, productType])
+  @@index([destinationId])
+}
+
+/// A fixed date + seat count a package can be booked directly against from the website. Only packages with at
+/// least one active future departure show a "Book now" button on the site — a custom/FIT trip has none, so it
+/// stays on the enquiry → staff-quoted flow. `bookedSeats` only ever moves through an atomic guarded UPDATE
+/// (inventory-availability.service.ts), same pattern as RatePeriod/FlightSeatBlock, so concurrent checkouts can't oversell.
+model PackageDeparture {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  packageId      String    @db.Uuid
+  package        Package   @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  departureDate  DateTime  @db.Date
+  returnDate     DateTime? @db.Date
+  /// Full price per traveler, INR whole rupees.
+  pricePerHead   Int
+  /// When set, checkout collects this per traveler to hold the seat instead of the full price; the rest is
+  /// collected later through the normal balance-reminder / payment-link flow. Null means full payment upfront.
+  depositPerHead Int?
+  totalSeats     Int
+  bookedSeats    Int       @default(0)
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  bookingItems BookingItem[]
+
+  @@index([packageId, departureDate])
+}
+
+model Testimonial {
+  id              String       @id @default(uuid(7)) @db.Uuid
+  customerName    String
+  location        String?
+  productType     ProductType?
+  rating          Int          @default(5)
+  quote           String
+  photoUrl        String?
+  published       Boolean      @default(false)
+  sortOrder       Int          @default(0)
+  /// Set when a customer wrote this from their portal after a trip: one review per booking, unpublished until staff approve it.
+  reviewBookingId String?      @unique @db.Uuid
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([published, sortOrder])
+}
+
+model Faq {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  category  String   @default("General")
+  question  String
+  answer    String
+  published Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([published, category, sortOrder])
+}
+
+// ─── Inventory (M05) ─────────────────────────────────────────────────────────
+
+enum MealPlan {
+  ROOM_ONLY
+  BREAKFAST
+  HALF_BOARD
+  FULL_BOARD
+  ALL_INCLUSIVE
+}
+
+enum CabinClass {
+  ECONOMY
+  PREMIUM_ECONOMY
+  BUSINESS
+  FIRST
+}
+
+model Hotel {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String
+  city      String
+  /// ISO country code, e.g. SA, AE, IN.
+  country   String   @default("SA")
+  /// Star rating shown to staff; not a formal classification.
+  category  Int?
+  address   String?
+  phone     String?
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roomTypes RoomType[]
+
+  @@index([city])
+}
+
+model RoomType {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  hotelId     String   @db.Uuid
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name        String
+  maxAdults   Int      @default(2)
+  maxChildren Int      @default(1)
+  mealPlan    MealPlan @default(BREAKFAST)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ratePeriods RatePeriod[]
+
+  @@index([hotelId])
+}
+
+/// A block of rooms held at a cost price for a date range. `bookedRooms` only ever moves through
+/// an atomic guarded UPDATE (booking-inventory.service.ts) so concurrent bookings can't overdraw it.
+model RatePeriod {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  roomTypeId  String   @db.Uuid
+  roomType    RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  startDate   DateTime @db.Date
+  endDate     DateTime @db.Date
+  /// Per room, per night.
+  costPrice   Int
+  totalRooms  Int
+  bookedRooms Int      @default(0)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bookingItems BookingItem[]
+
+  @@index([roomTypeId, startDate, endDate])
+}
+
+/// A block of seats Mashkoor has bought on a flight, resold to customers. Same guarded-update
+/// pattern as RatePeriod protects `bookedSeats`.
+model FlightSeatBlock {
+  id           String     @id @default(uuid(7)) @db.Uuid
+  airline      String
+  flightNumber String
+  /// IATA airport codes.
+  origin       String
+  destination  String
+  departureAt  DateTime
+  arrivalAt    DateTime?
+  cabinClass   CabinClass @default(ECONOMY)
+  totalSeats   Int
+  bookedSeats  Int        @default(0)
+  /// Per seat.
+  costPrice    Int
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  bookingItems BookingItem[]
+
+  @@index([departureAt])
+  @@index([origin, destination])
+}
+
+// ─── Pricing (M06) ───────────────────────────────────────────────────────────
+
+enum PricingScope {
+  B2C
+  B2B
+}
+
+enum PricingAdjustmentType {
+  PERCENT_MARKUP
+  FIXED_MARKUP
+  FIXED_PRICE
+}
+
+/// Turns a cost price into a selling price. Rules are evaluated by `priority` (lowest first);
+/// the last matching rule wins (pricing.service.ts).
+model PricingRule {
+  id             String                @id @default(uuid(7)) @db.Uuid
+  name           String
+  scope          PricingScope
+  productType    ProductType?
+  adjustmentType PricingAdjustmentType
+  /// Percent as a whole number (15 = 15%), or a flat rupee amount for FIXED_MARKUP/FIXED_PRICE.
+  value          Int
+  priority       Int                   @default(0)
+  validFrom      DateTime?             @db.Date
+  validTo        DateTime?             @db.Date
+  active         Boolean               @default(true)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  createdById    String?               @db.Uuid
+
+  @@index([scope, productType, active, priority])
+}
+
+// ─── Bookings (M07) ──────────────────────────────────────────────────────────
+
+enum BookingStatus {
+  INQUIRY
+  QUOTE
+  PENDING_PAYMENT
+  PENDING_APPROVAL
+  IN_PROGRESS
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum BookingItemType {
+  FLIGHT
+  HOTEL
+  PACKAGE
+  VISA
+  TICKETING
+  OTHER
+}
+
+model Booking {
+  id                  String        @id @default(uuid(7)) @db.Uuid
+  refNo               String        @unique
+  customerId          String        @db.Uuid
+  customer            Customer      @relation(fields: [customerId], references: [id])
+  leadId              String?       @db.Uuid
+  lead                Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  productType         ProductType
+  tripType            TripType      @default(FIT)
+  status              BookingStatus @default(INQUIRY)
+  destination         String?
+  travelFrom          DateTime?     @db.Date
+  travelTo            DateTime?     @db.Date
+  notes               String?
+  /// Sum of item cost/sell prices, kept denormalised for the register list. INR, whole rupees.
+  totalCost           Int           @default(0)
+  totalSell           Int           @default(0)
+  discount            Int           @default(0)
+  cancellationFee     Int           @default(0)
+  currency            String        @default("INR")
+  source              LeadSource    @default(OTHER)
+  /// Set for bookings made by a B2B partner.
+  partnerId           String?       @db.Uuid
+  partner             Partner?      @relation("PartnerBookings", fields: [partnerId], references: [id], onDelete: SetNull)
+  ownerId             String?       @db.Uuid
+  owner               User?         @relation("BookingOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  cancelledAt         DateTime?
+  cancelReason        String?
+  /// A partner asked to cancel a booking Mashkoor has already started on; ops decide.
+  cancelRequestedAt   DateTime?
+  cancelRequestReason String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  createdById         String?       @db.Uuid
+
+  items        BookingItem[]
+  travelers    Traveler[]        @relation("BookingTravelers")
+  payments     Payment[]
+  paymentLinks PaymentLink[]
+  updates      TripUpdate[]
+  documents    BookingDocument[]
+
+  @@index([status, ownerId])
+  @@index([customerId])
+  @@index([partnerId])
+  @@index([createdAt])
+}
+
+model BookingItem {
+  id                 String            @id @default(uuid(7)) @db.Uuid
+  bookingId          String            @db.Uuid
+  booking            Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  type               BookingItemType
+  description        String
+  packageId          String?           @db.Uuid
+  package            Package?          @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  flightSeatBlockId  String?           @db.Uuid
+  flightSeatBlock    FlightSeatBlock?  @relation(fields: [flightSeatBlockId], references: [id], onDelete: SetNull)
+  ratePeriodId       String?           @db.Uuid
+  ratePeriod         RatePeriod?       @relation(fields: [ratePeriodId], references: [id], onDelete: SetNull)
+  packageDepartureId String?           @db.Uuid
+  packageDeparture   PackageDeparture? @relation(fields: [packageDepartureId], references: [id], onDelete: SetNull)
+  /// Whether this item's seats/rooms are currently reserved against the linked inventory. Reserving and releasing flip
+  /// it, so cancelling, failing or reopening a booking can never release (or reserve) the same units twice.
+  held               Boolean           @default(true)
+  /// Seats, rooms or units reserved against the linked inventory record.
+  quantity           Int               @default(1)
+  costPrice          Int               @default(0)
+  sellPrice          Int               @default(0)
+  meta               Json?
+  createdAt          DateTime          @default(now())
+
+  @@index([bookingId])
+}
+
+// ─── Partners & KYC (M08) ────────────────────────────────────────────────────
+
+enum PartnerStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+  REJECTED
+}
+
+model Partner {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  refNo          String        @unique
+  companyName    String
+  contactName    String
+  phone          String
+  email          String
+  city           String?
+  state          String?
+  gstNumber      String?
+  panNumber      String?
+  /// [{ name, url }] — simple links until a document upload pipeline exists.
+  kycDocuments   Json          @default("[]")
+  status         PartnerStatus @default(PENDING)
+  /// What the agency tells Mashkoor (visible in both portals).
+  notes          String?
+  /// Staff-only remarks about the agency — never sent to the B2B portal.
+  internalNotes  String?
+  approvedAt     DateTime?
+  approvedById   String?       @db.Uuid
+  rejectedReason String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  users     User[]
+  customers Customer[]     @relation("PartnerCustomers")
+  leads     Lead[]         @relation("PartnerLeads")
+  bookings  Booking[]      @relation("PartnerBookings")
+  wallet    WalletAccount?
+
+  @@index([status])
+}
+
+// ─── Wallet & credit (M09) ───────────────────────────────────────────────────
+
+enum WalletEntryType {
+  TOPUP
+  DEBIT
+  REFUND
+  ADJUSTMENT_CREDIT
+  ADJUSTMENT_DEBIT
+}
+
+model WalletAccount {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  partnerId   String   @unique @db.Uuid
+  partner     Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  /// Current balance. Only ever changed through a guarded UPDATE (wallet.service.ts) — never set directly.
+  balance     Int      @default(0)
+  creditLimit Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  entries WalletLedgerEntry[]
+}
+
+/// Append-only; a row is never edited or deleted once written, so the ledger always explains the balance.
+model WalletLedgerEntry {
+  id              String          @id @default(uuid(7)) @db.Uuid
+  walletAccountId String          @db.Uuid
+  walletAccount   WalletAccount   @relation(fields: [walletAccountId], references: [id], onDelete: Cascade)
+  type            WalletEntryType
+  /// Always positive; `type` gives the direction.
+  amount          Int
+  balanceAfter    Int
+  referenceType   String?
+  referenceId     String?
+  note            String?
+  createdById     String?         @db.Uuid
+  createdAt       DateTime        @default(now())
+
+  @@index([walletAccountId, createdAt])
+}
+
+// ─── Payments (M11) ──────────────────────────────────────────────────────────
+// Offline/manual only for now — no payment gateway is wired up (no live keys). Recording a payment
+// here means staff physically received money (cash/bank transfer/UPI/card) and are logging it.
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  UPI
+  CARD
+  /// Paid online through the payment gateway (recorded automatically from the verified webhook).
+  GATEWAY
+  OTHER
+}
+
+enum PaymentDirection {
+  COLLECTION
+  REFUND
+}
+
+enum PaymentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+model Payment {
+  id            String           @id @default(uuid(7)) @db.Uuid
+  receiptNo     String           @unique
+  bookingId     String           @db.Uuid
+  booking       Booking          @relation(fields: [bookingId], references: [id])
+  direction     PaymentDirection @default(COLLECTION)
+  method        PaymentMethod
+  amount        Int
+  reference     String?
+  status        PaymentStatus    @default(PENDING)
+  notes         String?
+  recordedById  String?          @db.Uuid
+  verifiedById  String?          @db.Uuid
+  verifiedAt    DateTime?
+  /// Set when the money arrived through a payment link / the gateway.
+  paymentLinkId String?          @db.Uuid
+  paymentLink   PaymentLink?     @relation(fields: [paymentLinkId], references: [id], onDelete: SetNull)
+  gatewayRef    String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([bookingId, createdAt])
+  @@index([status])
+}
+
+// ─── Payment links (M11) ─────────────────────────────────────────────────────
+
+enum PaymentLinkStatus {
+  ACTIVE
+  PAID
+  EXPIRED
+  CANCELLED
+}
+
+/// A secret link (`/pay/:token`) a customer opens to pay an amount against a booking. The booking is only
+/// credited when the gateway's signed webhook says the money arrived — never from the browser.
+model PaymentLink {
+  id             String            @id @default(uuid(7)) @db.Uuid
+  token          String            @unique
+  bookingId      String            @db.Uuid
+  booking        Booking           @relation(fields: [bookingId], references: [id])
+  amount         Int
+  status         PaymentLinkStatus @default(ACTIVE)
+  expiresAt      DateTime
+  note           String?
+  gatewayOrderId String?           @unique
+  paidAt         DateTime?
+  createdById    String?           @db.Uuid
+  createdAt      DateTime          @default(now())
+
+  payments Payment[]
+
+  @@index([bookingId, status])
+}
+
+// ─── Notifications (M12) ─────────────────────────────────────────────────────
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+/// Every email the system sends. Stored before sending so failures can be retried and nothing is lost;
+/// `dedupeKey` stops scheduled reminders going out twice.
+model NotificationLog {
+  id          String             @id @default(uuid(7)) @db.Uuid
+  event       String
+  toEmail     String
+  toName      String?
+  subject     String
+  bodyText    String
+  bodyHtml    String?
+  status      NotificationStatus @default(QUEUED)
+  provider    String
+  providerRef String?
+  error       String?
+  attempts    Int                @default(0)
+  dedupeKey   String?            @unique
+  entityType  String?
+  entityId    String?
+  createdAt   DateTime           @default(now())
+  sentAt      DateTime?
+
+  @@index([status, createdAt])
+  @@index([entityType, entityId])
+}
+
+// ─── Itineraries (M10) ───────────────────────────────────────────────────────
+
+enum ItineraryStatus {
+  DRAFT
+  SHARED
+  ACCEPTED
+  CONVERTED
+}
+
+/// Day-wise trip plan with priced lines, shared with a customer through `/i/:token`.
+/// `days` = [{ day, title, description }]; `lines` = [{ description, quantity, unitPrice }].
+model Itinerary {
+  id                 String          @id @default(uuid(7)) @db.Uuid
+  refNo              String          @unique
+  title              String
+  productType        ProductType     @default(HOLIDAY)
+  tripType           TripType        @default(FIT)
+  isTemplate         Boolean         @default(false)
+  status             ItineraryStatus @default(DRAFT)
+  customerId         String?         @db.Uuid
+  customer           Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  leadId             String?         @db.Uuid
+  lead               Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  ownerId            String?         @db.Uuid
+  owner              User?           @relation("ItineraryOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  destination        String?
+  travelFrom         DateTime?       @db.Date
+  travelTo           DateTime?       @db.Date
+  adults             Int             @default(1)
+  children           Int             @default(0)
+  days               Json            @default("[]")
+  lines              Json            @default("[]")
+  inclusions         String[]        @default([])
+  exclusions         String[]        @default([])
+  terms              String?
+  /// Instalments shown on the quotation: [{ label, dueDate, amount }].
+  paymentSchedule    Json            @default("[]")
+  subject            String?
+  quoteDescription   String?
+  quoteNotes         String?
+  /// Added to (or taken off) the total of the lines.
+  adjustment         Int             @default(0)
+  fullPaymentDueDate DateTime?       @db.Date
+  /// Flight legs and hotel stays printed as tables on the quotation.
+  flights            Json            @default("[]")
+  hotels             Json            @default("[]")
+  totalPrice         Int             @default(0)
+  currency           String          @default("INR")
+  shareToken         String?         @unique
+  sharedAt           DateTime?
+  validUntil         DateTime?
+  viewCount          Int             @default(0)
+  lastViewedAt       DateTime?
+  acceptedAt         DateTime?
+  acceptedBy         String?
+  /// The customer asked for changes from their portal; cleared when staff share the plan again.
+  changesRequestedAt DateTime?
+  changesRequestNote String?
+  convertedBookingId String?         @db.Uuid
+  createdById        String?         @db.Uuid
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([status, ownerId])
+  @@index([customerId])
+  @@index([leadId])
+  @@index([isTemplate])
+}
+
+// ─── System ──────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  actorId    String?  @db.Uuid
+  portal     Portal?
+  action     String
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  ipHash     String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+}
+
+enum FileVisibility {
+  PRIVATE
+  PUBLIC
+}
+
+model File {
+  id           String         @id @default(uuid(7)) @db.Uuid
+  storageKey   String         @unique
+  originalName String
+  mimeType     String
+  size         Int
+  entityType   String?
+  entityId     String?
+  kind         String?
+  visibility   FileVisibility @default(PRIVATE)
+  uploadedById String?        @db.Uuid
+  createdAt    DateTime       @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model Setting {
+  key         String   @id
+  value       Json
+  updatedAt   DateTime @updatedAt
+  updatedById String?  @db.Uuid
+}
+
+model NumberSequence {
+  key     String
+  year    Int
+  current Int    @default(0)
+
+  @@id([key, year])
+}
+
+// ─── Customer experience (B2C portal) ───────────────────────────────────────
+
+/// A message staff post on a booking for the customer (and the booking's agency) to see: "Visa submitted", "Hotel confirmed".
+model TripUpdate {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  bookingId   String   @db.Uuid
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  message     String
+  createdById String?  @db.Uuid
+  createdBy   User?    @relation("TripUpdateAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([bookingId, createdAt])
+}
+
+enum BookingDocumentKind {
+  TICKET
+  VISA
+  VOUCHER
+  INSURANCE
+  ITINERARY
+  INVOICE
+  OTHER
+}
+
+/// A file staff attach to a booking (visa, e-ticket, hotel voucher …). The bytes live on disk under UPLOAD_DIR
+/// (StorageService: random key, encrypted at rest, SHA-256 checked on read); this row is only the metadata.
+/// `data` is the legacy in-database copy: rows written before file storage still have it until the start-up
+/// migration (BookingDocumentsService.migrateLegacyToFiles) moves them and clears it. Drop the column afterwards.
+model BookingDocument {
+  id                String              @id @default(uuid(7)) @db.Uuid
+  bookingId         String              @db.Uuid
+  booking           Booking             @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  kind              BookingDocumentKind @default(OTHER)
+  name              String
+  fileName          String
+  mimeType          String
+  sizeBytes         Int
+  /// Where the file is on disk (StorageService key). Null only for legacy rows that still hold `data`.
+  storageKey        String?             @unique
+  /// SHA-256 of the file's original bytes, checked on every download.
+  sha256            String?
+  data              Bytes?
+  /// Internal documents (supplier confirmations, cost sheets) stay hidden from the customer and agency.
+  visibleToCustomer Boolean             @default(true)
+  uploadedById      String?             @db.Uuid
+  uploadedBy        User?               @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt         DateTime            @default(now())
+
+  @@index([bookingId, createdAt])
+}
+
+// ─── Contacts (rolodex: suppliers, agents, general — not a customer, not a full partner account) ───
+
+enum ContactType {
+  SUPPLIER
+  AGENT
+  GENERAL
+}
+
+/// A lightweight address-book entry for someone who isn't a travel customer and doesn't have a portal account:
+/// a hotel's reservations contact, a visa agent, a referral source. Deliberately not linked to bills or payments —
+/// that stays with a future accounting module, not here.
+model Contact {
+  id              String      @id @default(uuid(7)) @db.Uuid
+  type            ContactType @default(GENERAL)
+  name            String
+  phone           String?
+  altPhone        String?
+  email           String?
+  company         String?
+  designation     String?
+  city            String?
+  state           String?
+  notes           String?
+  lastContactedAt DateTime?
+  createdById     String?     @db.Uuid
+  createdBy       User?       @relation("ContactCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([type, name])
+}

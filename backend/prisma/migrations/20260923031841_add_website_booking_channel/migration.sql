@@ -1,0 +1,1 @@
+ALTER TYPE "InboundChannel" ADD VALUE 'WEBSITE_BOOKING';

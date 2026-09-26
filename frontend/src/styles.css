@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/* Mashkoor brand tokens — shared visual language with the website (plum + gold). */
+@theme {
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Poppins", ui-sans-serif, system-ui, sans-serif;
+
+  --color-plum-50: #faf2f7;
+  --color-plum-100: #f3e1ec;
+  --color-plum-200: #e6c1d8;
+  --color-plum-300: #d093b9;
+  --color-plum-400: #b25e93;
+  --color-plum-500: #943a76;
+  --color-plum-600: #7a1a5e;
+  --color-plum-700: #63134c;
+  --color-plum-800: #4c0e3a;
+  --color-plum-900: #350a29;
+  --color-plum-950: #22061a;
+
+  --color-gold-50: #fffaeb;
+  --color-gold-100: #fef1c7;
+  --color-gold-300: #fad25a;
+  --color-gold-400: #f8c828;
+  --color-gold-500: #e3ac0c;
+  --color-gold-700: #94650a;
+
+  --color-ink-900: #1e1320;
+  --color-ink-700: #3e3240;
+  --color-ink-500: #6b5f6c;
+  --color-ink-300: #a89da8;
+
+  --color-surface: #f7f5f8;
+  --color-line: #e8e3ea;
+}
+
+@layer base {
+  body {
+    background: var(--color-surface);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+  }
+  input[type="search"]::-webkit-search-cancel-button {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-plum-500);
+    outline-offset: 2px;
+  }
+}
+
+/* One look for every dropdown: no native arrow crammed against the edge, a soft chevron with proper breathing room. */
+select {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 2.25rem;
+  min-width: 8.5rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%236b5f6c' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5.5 7.75 4.5 4.5 4.5-4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1.05rem;
+}
+select:hover:not(:disabled) {
+  border-color: var(--color-ink-300);
+}

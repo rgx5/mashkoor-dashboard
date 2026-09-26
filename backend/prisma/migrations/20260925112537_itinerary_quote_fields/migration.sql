@@ -1,0 +1,1 @@
+ALTER TABLE "Itinerary" ADD COLUMN "subject" TEXT, ADD COLUMN "quoteDescription" TEXT, ADD COLUMN "quoteNotes" TEXT, ADD COLUMN "adjustment" INTEGER NOT NULL DEFAULT 0, ADD COLUMN "fullPaymentDueDate" DATE;

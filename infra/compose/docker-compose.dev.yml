@@ -1,0 +1,33 @@
+# Local development services for mashkoor-app.
+# Usage (from dashboard/):  pnpm db:up
+name: mashkoor-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: mashkoor
+      POSTGRES_PASSWORD: mashkoor
+      POSTGRES_DB: mashkoor
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mashkoor"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025" # web UI
+      - "1025:1025" # SMTP
+
+volumes:
+  pgdata:

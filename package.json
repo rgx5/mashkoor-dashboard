@@ -1,0 +1,26 @@
+{
+  "name": "mashkoor-app",
+  "private": true,
+  "description": "Mashkoor Travels platform — NestJS backend + React dashboard (Admin, B2B, B2C portals)",
+  "packageManager": "pnpm@10.31.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:up": "docker compose -f infra/compose/docker-compose.dev.yml up -d",
+    "db:down": "docker compose -f infra/compose/docker-compose.dev.yml down",
+    "db:migrate": "pnpm --filter @mashkoor/backend prisma:migrate",
+    "db:seed": "pnpm --filter @mashkoor/backend prisma:seed",
+    "gen:module": "node tools/generators/module.mjs"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "turbo": "^2.5.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,11 @@
+packages:
+  - backend
+  - frontend
+  - packages/*
+
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - prisma
+  - "@nestjs/core"
+  - esbuild

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mashkoor-frontend",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@mashkoor/frontend", "dev"],
+      "port": 5173
+    }
+  ]
+}
