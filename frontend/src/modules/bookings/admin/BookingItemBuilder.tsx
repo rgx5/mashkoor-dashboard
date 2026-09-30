@@ -63,7 +63,13 @@ function HotelItemForm({ onAdd }: { onAdd: (item: BookingItemData & { label: str
                 {r.hotel.name} · {r.roomType.name}
               </p>
               <p className="text-xs text-ink-500">
-                {r.hotel.city} · {MEAL_PLAN_LABELS[r.roomType.mealPlan]} · {r.ratePeriod.available} available · {formatINR(r.ratePeriod.costPrice)}/night{nights > 0 ? ` · ${formatINR(r.ratePeriod.costPrice * nights)} for ${nights} night${nights > 1 ? "s" : ""}` : ""}
+                {r.hotel.city} · {MEAL_PLAN_LABELS[r.roomType.mealPlan]} · {r.ratePeriod.available} available
+                {r.ratePeriod.costPrice != null && (
+                  <>
+                    {" · "}
+                    {formatINR(r.ratePeriod.costPrice)}/night{nights > 0 ? ` · ${formatINR(r.ratePeriod.costPrice * nights)} for ${nights} night${nights > 1 ? "s" : ""}` : ""}
+                  </>
+                )}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -76,7 +82,8 @@ function HotelItemForm({ onAdd }: { onAdd: (item: BookingItemData & { label: str
                     description: `${r.hotel.name} · ${r.roomType.name} (${formatDate(from)} – ${formatDate(to)}, ${nights} night${nights === 1 ? "" : "s"})`,
                     ratePeriodId: r.ratePeriod.id,
                     quantity,
-                    costPrice: r.ratePeriod.costPrice * Math.max(nights, 1),
+                    // Null means cost is redacted for this role — the backend re-derives the real cost from the rate period, this is only a placeholder.
+                    costPrice: (r.ratePeriod.costPrice ?? 0) * Math.max(nights, 1),
                     sellPrice: 0,
                     label: `${r.hotel.name} · ${r.roomType.name} × ${Math.max(nights, 1)}N`,
                   })
@@ -118,7 +125,7 @@ function FlightItemForm({ onAdd }: { onAdd: (item: BookingItemData & { label: st
                 {f.airline} {f.flightNumber} · {f.origin} → {f.destination}
               </p>
               <p className="text-xs text-ink-500">
-                {formatDateTime(f.departureAt)} · {f.available} seats left · {formatINR(f.costPrice)}/seat
+                {formatDateTime(f.departureAt)} · {f.available} seats left{f.costPrice != null && ` · ${formatINR(f.costPrice)}/seat`}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -131,7 +138,8 @@ function FlightItemForm({ onAdd }: { onAdd: (item: BookingItemData & { label: st
                     description: `${f.airline} ${f.flightNumber} · ${f.origin} → ${f.destination} (${formatDateTime(f.departureAt)})`,
                     flightSeatBlockId: f.id,
                     quantity,
-                    costPrice: f.costPrice,
+                    // Null means cost is redacted for this role — the backend re-derives the real cost from the seat block, this is only a placeholder.
+                    costPrice: f.costPrice ?? 0,
                     sellPrice: 0,
                     label: `${f.airline} ${f.flightNumber}`,
                   })

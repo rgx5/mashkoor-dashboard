@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const REPORT_NAMES = ["sales", "ageing", "daybook", "lead-sources", "staff-performance"] as const;
+export const REPORT_NAMES = ["sales", "ageing", "daybook", "lead-sources", "staff-performance", "leads-funnel", "partner-activity", "upcoming-travel"] as const;
 export type ReportName = (typeof REPORT_NAMES)[number];
 
 export const REPORT_INFO: Record<ReportName, { title: string; description: string }> = {
@@ -9,6 +9,9 @@ export const REPORT_INFO: Record<ReportName, { title: string; description: strin
   daybook: { title: "Daybook", description: "All payments and refunds recorded in the period, by day and method." },
   "lead-sources": { title: "Lead sources", description: "Where enquiries come from and how many turn into bookings." },
   "staff-performance": { title: "Staff performance", description: "Leads, wins, bookings and sales value per team member." },
+  "leads-funnel": { title: "Leads funnel", description: "How far leads created in the period got, stage by stage." },
+  "partner-activity": { title: "Partner activity", description: "Leads, bookings and wallet position per B2B agency." },
+  "upcoming-travel": { title: "Upcoming travel", description: "Who's travelling in the next 30 days, and what they still owe." },
 };
 
 export const reportQuerySchema = z.object({ from: z.iso.date().optional(), to: z.iso.date().optional() });

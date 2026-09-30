@@ -23,6 +23,10 @@ enum Role {
   SUPER_ADMIN
   OPS_MANAGER
   SALES_AGENT
+  ACCOUNTS
+  VISA_DOCS
+  SUPPORT
+  CONTENT
   PARTNER_ADMIN
   PARTNER_USER
   CUSTOMER
@@ -694,6 +698,21 @@ model PricingRule {
   createdById    String?               @db.Uuid
 
   @@index([scope, productType, active, priority])
+}
+
+/// Foreign currencies a quotation line can be priced in (a Saudi hotel billed in SAR, for example) — INR is always
+/// present and always rate 1. `rateToInr` is only ever a default for a NEW line: itineraries.ts snapshots the rate
+/// onto the line itself when it's added, so updating a rate here never silently changes an existing quotation.
+model Currency {
+  /// ISO 4217, e.g. INR, SAR, USD.
+  code        String   @id @db.Char(3)
+  name        String
+  symbol      String
+  /// How many INR equal 1 unit of this currency.
+  rateToInr   Float
+  active      Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+  updatedById String?  @db.Uuid
 }
 
 // ─── Bookings (M07) ──────────────────────────────────────────────────────────

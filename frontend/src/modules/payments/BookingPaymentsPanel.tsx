@@ -22,14 +22,14 @@ export function BookingPaymentsPanel({ bookingId }: { bookingId: string }) {
   const [linking, setLinking] = useState(false);
   const verify = useVerifyPayment();
   const reject = useRejectPayment();
-  const canVerify = ability.can("manage", "Booking");
+  const canVerify = ability.can("collect", "Booking");
 
   return (
     <Card className="p-5">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold">Payments</h2>
         <div className="flex gap-2">
-          {ability.can("update", "Booking") && (data?.balanceDue ?? 0) > 0 && (
+          {ability.can("collect", "Booking") && (data?.balanceDue ?? 0) > 0 && (
             <Button size="sm" variant="secondary" onClick={() => setLinking(true)}>
               <Link2 className="h-4 w-4" aria-hidden /> Payment link
             </Button>

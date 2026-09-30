@@ -25,24 +25,31 @@ export class DashboardService {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const soon = new Date(now.getTime() + 14 * 24 * 3600 * 1000);
 
-    const leadScope = accessibleBy(ability).Lead;
-    const bookingScope = accessibleBy(ability).Booking;
+    // Every query is skipped (and its numbers zeroed) when the role can't read that kind of record — a Content editor
+    // has no leads or bookings, and asking CASL for a scope it doesn't have would refuse the whole page.
+    const canReadLeads = ability.can("read", "Lead");
+    const canReadBookings = ability.can("read", "Booking");
+    const leadScope = canReadLeads ? accessibleBy(ability).Lead : null;
+    const bookingScope = canReadBookings ? accessibleBy(ability).Booking : null;
     const canManageBookings = ability.can("manage", "Booking");
+    const canCollect = ability.can("collect", "Booking");
     const canManagePartners = ability.can("manage", "Partner");
 
     const [leadStages, newToday, overdue, unassigned, bookingStatuses, revenue, tasksToday, tasksOverdue, pendingPayments, pendingPartners, flights] = await Promise.all([
-      this.prisma.lead.groupBy({ by: ["stage"], where: leadScope, _count: true }),
-      this.prisma.lead.count({ where: { AND: [leadScope, { createdAt: { gte: startOfDay } }] } }),
-      this.prisma.lead.count({ where: { AND: [leadScope, { nextFollowUpAt: { lt: now }, stage: { in: [...OPEN_LEAD_STAGES] } }] } }),
-      this.prisma.lead.count({ where: { AND: [leadScope, { ownerId: null, stage: { in: [...OPEN_LEAD_STAGES] } }] } }),
-      this.prisma.booking.groupBy({ by: ["status"], where: bookingScope, _count: true }),
-      this.prisma.booking.aggregate({
-        where: { AND: [bookingScope, { status: { in: ["CONFIRMED", "COMPLETED"] }, createdAt: { gte: startOfMonth } }] },
-        _sum: { totalSell: true, totalCost: true },
-      }),
+      leadScope ? this.prisma.lead.groupBy({ by: ["stage"], where: leadScope, _count: true }) : Promise.resolve([]),
+      leadScope ? this.prisma.lead.count({ where: { AND: [leadScope, { createdAt: { gte: startOfDay } }] } }) : Promise.resolve(0),
+      leadScope ? this.prisma.lead.count({ where: { AND: [leadScope, { nextFollowUpAt: { lt: now }, stage: { in: [...OPEN_LEAD_STAGES] } }] } }) : Promise.resolve(0),
+      leadScope ? this.prisma.lead.count({ where: { AND: [leadScope, { ownerId: null, stage: { in: [...OPEN_LEAD_STAGES] } }] } }) : Promise.resolve(0),
+      bookingScope ? this.prisma.booking.groupBy({ by: ["status"], where: bookingScope, _count: true }) : Promise.resolve([]),
+      bookingScope
+        ? this.prisma.booking.aggregate({
+            where: { AND: [bookingScope, { status: { in: ["CONFIRMED", "COMPLETED"] }, createdAt: { gte: startOfMonth } }] },
+            _sum: { totalSell: true, totalCost: true },
+          })
+        : Promise.resolve({ _sum: { totalSell: 0, totalCost: 0 } }),
       this.prisma.task.count({ where: { assigneeId: actor.id, status: "OPEN", dueAt: { gte: startOfDay, lte: endOfDay } } }),
       this.prisma.task.count({ where: { assigneeId: actor.id, status: "OPEN", dueAt: { lt: startOfDay } } }),
-      canManageBookings ? this.prisma.payment.count({ where: { status: "PENDING" } }) : Promise.resolve(0),
+      canCollect ? this.prisma.payment.count({ where: { status: "PENDING" } }) : Promise.resolve(0),
       canManagePartners ? this.prisma.partner.count({ where: { status: "PENDING" } }) : Promise.resolve(0),
       ability.can("read", "FlightSeatBlock")
         ? this.prisma.flightSeatBlock.findMany({ where: { departureAt: { gte: now, lte: soon } }, orderBy: { departureAt: "asc" }, take: 50 })
@@ -50,7 +57,7 @@ export class DashboardService {
     ]);
 
     // Customer money position, from verified payments only (pending ones aren't money yet).
-    const moneyBookings = await this.prisma.booking.findMany({
+    const moneyBookings = !bookingScope ? [] : await this.prisma.booking.findMany({
       where: { AND: [bookingScope, { status: { in: ["QUOTE", "PENDING_PAYMENT", "PENDING_APPROVAL", "IN_PROGRESS", "CONFIRMED", "COMPLETED"] } }] },
       select: {
         id: true,
@@ -71,7 +78,7 @@ export class DashboardService {
       .sort((a, b) => a.travelFrom!.getTime() - b.travelFrom!.getTime())
       .slice(0, 10)
       .map((b) => ({ id: b.id, refNo: b.refNo, customerName: b.customer.fullName, travelFrom: toDateOnly(b.travelFrom)!, balanceDue: b.totalSell - netOf(b) }));
-    const receivables = canManageBookings
+    const receivables = canCollect
       ? {
           pendingFromCustomers: { amount: owing.reduce((sum, b) => sum + (b.totalSell - netOf(b)), 0), bookings: owing.length },
           advanceFromCustomers: notYetConfirmed.reduce((sum, b) => sum + Math.max(0, netOf(b)), 0),
@@ -87,7 +94,21 @@ export class DashboardService {
     const byStage: Partial<Record<LeadStage, number>> = {};
     for (const row of leadStages) byStage[row.stage] = row._count;
 
+    const upcoming = bookingScope
+      ? await this.prisma.booking.findMany({
+          where: { AND: [bookingScope, { travelFrom: { gte: startOfDay, lte: soon }, status: { in: ["PENDING_PAYMENT", "IN_PROGRESS", "CONFIRMED"] } }] },
+          orderBy: { travelFrom: "asc" },
+          take: 15,
+          select: { id: true, refNo: true, status: true, travelFrom: true, customer: { select: { fullName: true } }, _count: { select: { documents: true } } },
+        })
+      : [];
+    const upcomingTrips = upcoming.map((b) => ({ id: b.id, refNo: b.refNo, customerName: b.customer.fullName, travelFrom: toDateOnly(b.travelFrom)!, status: b.status, documents: b._count.documents }));
+
+    const documents = ability.can("attach", "Booking") && bookingScope ? await this.documentsWork(bookingScope, startOfDay) : null;
+    const content = ability.can("manage", "Package") ? await this.contentStatus(now) : null;
+
     return {
+      role: actor.role,
       leads: { newToday, overdueFollowUps: overdue, byStage, unassigned },
       bookings: {
         byStatus,
@@ -96,16 +117,67 @@ export class DashboardService {
         marginThisMonth: canManageBookings ? (revenue._sum.totalSell ?? 0) - (revenue._sum.totalCost ?? 0) : null,
       },
       tasks: { dueToday: tasksToday, overdue: tasksOverdue },
-      payments: canManageBookings ? { pendingVerification: pendingPayments } : null,
+      payments: canCollect ? { pendingVerification: pendingPayments } : null,
       partners: canManagePartners ? { pendingApplications: pendingPartners } : null,
       receivables,
       departuresSoon,
+      upcomingTrips,
+      documents,
+      content,
       lowInventory: {
         flightsDepartingSoon: flights
           .filter((f) => f.totalSeats - f.bookedSeats <= 3)
           .map((f) => ({ id: f.id, label: `${f.airline} ${f.flightNumber} · ${f.origin} → ${f.destination}`, available: f.totalSeats - f.bookedSeats, departureAt: f.departureAt.toISOString() })),
       },
     };
+  }
+
+  /** Visa / documentation work: confirmed trips with nothing attached yet, and passports that won't do for the trip. */
+  private async documentsWork(bookingScope: NonNullable<ReturnType<typeof accessibleBy>["Booking"]>, startOfDay: Date) {
+    const in30 = new Date(startOfDay.getTime() + 30 * 24 * 3600_000);
+    const in60 = new Date(startOfDay.getTime() + 60 * 24 * 3600_000);
+    const [noDocs, travelling] = await Promise.all([
+      this.prisma.booking.findMany({
+        where: { AND: [bookingScope, { travelFrom: { gte: startOfDay, lte: in30 }, status: { in: ["IN_PROGRESS", "CONFIRMED"] }, documents: { none: {} } }] },
+        orderBy: { travelFrom: "asc" },
+        take: 10,
+        select: { id: true, refNo: true, travelFrom: true, customer: { select: { fullName: true } } },
+      }),
+      this.prisma.booking.findMany({
+        where: { AND: [bookingScope, { travelFrom: { gte: startOfDay, lte: in60 }, status: { in: ["IN_PROGRESS", "CONFIRMED", "PENDING_PAYMENT"] } }] },
+        orderBy: { travelFrom: "asc" },
+        take: 100,
+        select: { id: true, refNo: true, travelFrom: true, travelers: { select: { firstName: true, lastName: true, passportExpiry: true } } },
+      }),
+    ]);
+    const passportIssues = travelling
+      .flatMap((b) =>
+        b.travelers
+          .filter((t) => {
+            if (!t.passportExpiry) return true;
+            const needed = new Date(b.travelFrom!);
+            needed.setMonth(needed.getMonth() + 6);
+            return t.passportExpiry < needed;
+          })
+          .map((t) => ({ bookingId: b.id, refNo: b.refNo, travelerName: [t.firstName, t.lastName].filter(Boolean).join(" "), passportExpiry: toDateOnly(t.passportExpiry), travelFrom: toDateOnly(b.travelFrom)! })),
+      )
+      .slice(0, 12);
+    return {
+      tripsWithoutDocuments: noDocs.map((b) => ({ id: b.id, refNo: b.refNo, customerName: b.customer.fullName, travelFrom: toDateOnly(b.travelFrom)! })),
+      passportIssues,
+    };
+  }
+
+  private async contentStatus(now: Date) {
+    const [publishedPackages, draftPackages, publishedDestinations, draftDestinations, reviewsToApprove, openDepartures] = await Promise.all([
+      this.prisma.package.count({ where: { published: true } }),
+      this.prisma.package.count({ where: { published: false } }),
+      this.prisma.destination.count({ where: { published: true } }),
+      this.prisma.destination.count({ where: { published: false } }),
+      this.prisma.testimonial.count({ where: { published: false, reviewBookingId: { not: null } } }),
+      this.prisma.packageDeparture.count({ where: { active: true, departureDate: { gte: now } } }),
+    ]);
+    return { publishedPackages, draftPackages, publishedDestinations, draftDestinations, reviewsToApprove, openDepartures };
   }
 
   async b2b(actor: RequestUser): Promise<B2BDashboardSummary> {

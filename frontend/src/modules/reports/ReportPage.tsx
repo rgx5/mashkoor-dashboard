@@ -56,7 +56,7 @@ export function ReportPage() {
 
 function Report({ name }: { name: ReportName }) {
   const [params, setParams] = useSearchParams();
-  const pointInTime = name === "ageing";
+  const pointInTime = name === "ageing" || name === "upcoming-travel";
   const from = params.get("from") ?? undefined;
   const to = params.get("to") ?? undefined;
   const { data, isLoading, error } = useReport(name, from, to);

@@ -666,7 +666,7 @@ export class BookingsService {
   }
 
   /** The single permission check for "may this person see / change this booking" — other modules reuse it. */
-  async findAccessible(actor: RequestUser, id: string, action: "read" | "update") {
+  async findAccessible(actor: RequestUser, id: string, action: "read" | "update" | "attach" | "notify" | "collect") {
     const booking = await this.prisma.booking.findUnique({ where: { id } });
     if (!booking) throw AppError.notFound("Booking");
     if (!this.abilities.forUser(actor).can(action, subject("Booking", booking))) throw AppError.forbidden();

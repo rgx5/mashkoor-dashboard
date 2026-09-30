@@ -7,7 +7,7 @@ export { BookingPaymentsPanel } from "./BookingPaymentsPanel";
 export const paymentsModule: AppModule = {
   id: "payments",
   admin: {
-    nav: [{ label: "Payments", to: "payments", icon: CreditCard, can: ["read", "Booking"], group: "Operations" }],
+    nav: [{ label: "Payments", to: "payments", icon: CreditCard, can: ["collect", "Booking"], group: "Operations" }],
     routes: [{ path: "payments", lazy: async () => ({ Component: (await import("./admin/PaymentsPage")).PaymentsPage }) }],
   },
 };

@@ -61,7 +61,7 @@ export function PaymentsPage() {
       header: "",
       className: "text-right",
       cell: (p) =>
-        ability.can("manage", "Booking") && p.status === "PENDING" ? (
+        ability.can("collect", "Booking") && p.status === "PENDING" ? (
           <div className="flex justify-end gap-1">
             <Button variant="ghost" size="sm" aria-label="Verify" onClick={() => withToast(verify.mutateAsync(p.id), "Payment verified")}>
               <Check className="h-4 w-4 text-emerald-600" aria-hidden />

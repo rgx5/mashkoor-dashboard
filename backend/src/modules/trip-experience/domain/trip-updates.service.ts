@@ -38,7 +38,7 @@ export class TripUpdatesService {
 
   async post(actor: RequestUser, bookingId: string, input: TripUpdateData): Promise<TripUpdateRow> {
     if (!isStaff(actor)) throw AppError.forbidden();
-    const booking = await this.bookings.findAccessible(actor, bookingId, "update");
+    const booking = await this.bookings.findAccessible(actor, bookingId, "notify");
     const update = await this.prisma.tripUpdate.create({ data: { bookingId, message: input.message, createdById: actor.id }, include: { createdBy: { select: { name: true } } } });
     await this.activities.record({ entityType: "CUSTOMER", entityId: booking.customerId, customerId: booking.customerId, type: "SYSTEM", body: `Update shared on ${booking.refNo}: ${input.message}`, actorId: actor.id });
     await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "trip.update_posted", entityType: "Booking", entityId: bookingId });
@@ -50,7 +50,7 @@ export class TripUpdatesService {
     if (!isStaff(actor)) throw AppError.forbidden();
     const update = await this.prisma.tripUpdate.findUnique({ where: { id: updateId } });
     if (!update) throw AppError.notFound("Update");
-    await this.bookings.findAccessible(actor, update.bookingId, "update");
+    await this.bookings.findAccessible(actor, update.bookingId, "notify");
     await this.prisma.tripUpdate.delete({ where: { id: updateId } });
   }
 

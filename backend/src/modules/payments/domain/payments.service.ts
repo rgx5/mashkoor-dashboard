@@ -53,6 +53,7 @@ export class PaymentsService {
 
   async list(actor: RequestUser, query: PaymentListQuery): Promise<Paginated<PaymentRow>> {
     const ability = this.abilities.forUser(actor);
+    if (!ability.can("collect", "Booking")) throw AppError.forbidden();
     // Scoped by whatever bookings this actor can see (mirrors BookingsService's own scoping).
     const where: Prisma.PaymentWhereInput = {
       AND: [{ booking: accessibleBy(ability).Booking }, query.bookingId ? { bookingId: query.bookingId } : {}, query.customerId ? { booking: { customerId: query.customerId } } : {}, query.status ? { status: query.status } : {}],
@@ -82,7 +83,7 @@ export class PaymentsService {
   async record(actor: RequestUser, input: PaymentData): Promise<PaymentRow> {
     const booking = await this.prisma.booking.findUnique({ where: { id: input.bookingId } });
     if (!booking) throw AppError.notFound("Booking");
-    if (!this.abilities.forUser(actor).can("update", subject("Booking", booking))) throw AppError.forbidden();
+    if (!this.abilities.forUser(actor).can("collect", subject("Booking", booking))) throw AppError.forbidden();
 
     const created = await this.prisma.$transaction(async (tx) => {
       const payment = await tx.payment.create({
@@ -97,7 +98,7 @@ export class PaymentsService {
 
   /** Staff confirm the money actually landed (bank statement reconciled, cash counted, etc.). */
   async verify(actor: RequestUser, id: string): Promise<PaymentRow> {
-    const payment = await this.findAccessible(actor, id, "update");
+    const payment = await this.findAccessible(actor, id, "collect");
     if (payment.status !== "PENDING") throw AppError.conflict("This payment has already been actioned");
     const updated = await this.prisma.payment.update({ where: { id }, data: { status: "VERIFIED", verifiedById: actor.id, verifiedAt: new Date() }, include });
     await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "payment.verified", entityType: "Payment", entityId: id });
@@ -106,7 +107,7 @@ export class PaymentsService {
   }
 
   async reject(actor: RequestUser, id: string, reason: string): Promise<PaymentRow> {
-    const payment = await this.findAccessible(actor, id, "update");
+    const payment = await this.findAccessible(actor, id, "collect");
     if (payment.status !== "PENDING") throw AppError.conflict("This payment has already been actioned");
     const updated = await this.prisma.payment.update({ where: { id }, data: { status: "REJECTED", notes: [payment.notes, `Rejected: ${reason}`].filter(Boolean).join("\n"), verifiedById: actor.id, verifiedAt: new Date() }, include });
     await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "payment.rejected", entityType: "Payment", entityId: id, after: { reason } });
@@ -139,7 +140,7 @@ export class PaymentsService {
     return loadUserRefs(this.prisma, rows.flatMap((r) => [r.recordedById, r.verifiedById]));
   }
 
-  private async findAccessible(actor: RequestUser, id: string, action: "update") {
+  private async findAccessible(actor: RequestUser, id: string, action: "collect") {
     const payment = await this.prisma.payment.findUnique({ where: { id }, include: { booking: true } });
     if (!payment) throw AppError.notFound("Payment");
     if (!this.abilities.forUser(actor).can(action, subject("Booking", payment.booking))) throw AppError.forbidden();

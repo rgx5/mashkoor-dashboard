@@ -1,17 +1,8 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  BOOKING_ITEM_TYPE_LABELS,
-  BOOKING_ITEM_TYPES,
-  BOOKING_STATUS_LABELS,
-  bookingInputSchema,
-  PRODUCT_TYPE_LABELS,
-  PRODUCT_TYPES,
-  type BookingRow,
-  type BookingStatus,
-} from "@mashkoor/shared";
+import { BOOKING_ITEM_TYPE_LABELS, BOOKING_STATUS_LABELS, bookingInputSchema, PRODUCT_TYPE_LABELS, PRODUCT_TYPES, type BookingRow, type BookingStatus } from "@mashkoor/shared";
 import { Luggage, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import type { z } from "zod";
@@ -23,6 +14,7 @@ import { Dialog } from "@/core/ui/Dialog";
 import { FormError, inputClass, SelectField, TextareaField, TextField } from "@/core/ui/form";
 import { Badge, PageHeader } from "@/core/ui/layout";
 import { useMyCustomers } from "@/modules/customers/b2b/api";
+import { B2BItemBuilder } from "./B2BItemBuilder";
 import { useCreateMyBooking, useMyBookings } from "./api";
 
 type FormIn = z.input<typeof bookingInputSchema>;
@@ -103,9 +95,10 @@ function NewBookingForm({ onDone }: { onDone: () => void }) {
 
   const { register, handleSubmit, setError, control, formState } = useForm<FormIn, unknown, FormOut>({
     resolver: zodResolver(bookingInputSchema),
-    defaultValues: { productType: "HOLIDAY", discount: 0, travelerIds: [], items: [{ type: "PACKAGE", description: "", quantity: 1, costPrice: 0, sellPrice: 0 }] },
+    defaultValues: { productType: "HOLIDAY", discount: 0, travelerIds: [], items: [] },
   });
   const items = useFieldArray({ control, name: "items" });
+  const productType = useWatch({ control, name: "productType" }) ?? "HOLIDAY";
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
@@ -144,31 +137,24 @@ function NewBookingForm({ onDone }: { onDone: () => void }) {
       </div>
 
       <div>
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-ink-700">Items</h3>
-          <Button type="button" size="sm" variant="secondary" onClick={() => items.append({ type: "PACKAGE", description: "", quantity: 1, costPrice: 0, sellPrice: 0 })}>
-            <Plus className="h-4 w-4" aria-hidden /> Add item
-          </Button>
-        </div>
-        <div className="space-y-2">
-          {items.fields.map((f, i) => (
-            <div key={f.id} className="grid grid-cols-[8rem_1fr_4rem_6rem_auto] gap-2">
-              <select className={inputClass} aria-label="Item type" {...register(`items.${i}.type`)}>
-                {BOOKING_ITEM_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {BOOKING_ITEM_TYPE_LABELS[t]}
-                  </option>
-                ))}
-              </select>
-              <input placeholder="Description" className={inputClass} aria-label="Description" {...register(`items.${i}.description`)} />
-              <input type="number" min={1} placeholder="Qty" className={inputClass} aria-label="Quantity" {...register(`items.${i}.quantity`)} />
-              <input type="number" min={0} placeholder="Price ₹" className={inputClass} aria-label="Price" {...register(`items.${i}.sellPrice`)} />
-              <Button type="button" variant="ghost" size="sm" onClick={() => items.remove(i)} aria-label="Remove item">
-                <Trash2 className="h-4 w-4" aria-hidden />
-              </Button>
-            </div>
-          ))}
-        </div>
+        <h3 className="mb-2 text-sm font-semibold text-ink-700">Items</h3>
+        <B2BItemBuilder productType={productType} onAdd={(item) => items.append(item)} />
+        {formState.errors.items?.message && <p className="mt-2 text-sm text-red-600">{formState.errors.items.message}</p>}
+        {items.fields.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {items.fields.map((f, i) => (
+              <div key={f.id} className="grid grid-cols-[7rem_1fr_4rem_6rem_auto] items-center gap-2">
+                <Badge tone="plum">{BOOKING_ITEM_TYPE_LABELS[f.type]}</Badge>
+                <input placeholder="Description" className={inputClass} aria-label="Description" {...register(`items.${i}.description`)} />
+                <input type="number" min={1} placeholder="Qty" className={inputClass} aria-label="Quantity" {...register(`items.${i}.quantity`)} />
+                <input type="number" min={0} placeholder="Price ₹" className={inputClass} aria-label="Price" {...register(`items.${i}.sellPrice`)} />
+                <Button type="button" variant="ghost" size="sm" onClick={() => items.remove(i)} aria-label="Remove item">
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
         <p className="mt-2 text-xs text-ink-500">Prices are what Mashkoor will charge your wallet once confirmed — check with your rate sheet before submitting.</p>
       </div>
 

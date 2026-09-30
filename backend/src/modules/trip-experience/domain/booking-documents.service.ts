@@ -108,7 +108,7 @@ export class BookingDocumentsService implements OnApplicationBootstrap, OnModule
 
   async upload(actor: RequestUser, bookingId: string, meta: DocumentUploadQuery, body: Buffer): Promise<BookingDocumentRow> {
     if (!isStaff(actor)) throw AppError.forbidden();
-    const booking = await this.bookings.findAccessible(actor, bookingId, "update");
+    const booking = await this.bookings.findAccessible(actor, bookingId, "attach");
 
     if (body.length === 0) throw this.invalid("The file is empty");
     if (body.length > MAX_DOCUMENT_BYTES) throw this.invalid(`Files can be up to ${MAX_DOCUMENT_BYTES / 1024 / 1024} MB`);
@@ -169,7 +169,7 @@ export class BookingDocumentsService implements OnApplicationBootstrap, OnModule
     if (!isStaff(actor)) throw AppError.forbidden();
     const existing = await this.prisma.bookingDocument.findUnique({ where: { id: documentId }, select: { bookingId: true } });
     if (!existing) throw AppError.notFound("Document");
-    await this.bookings.findAccessible(actor, existing.bookingId, "update");
+    await this.bookings.findAccessible(actor, existing.bookingId, "attach");
     return toRow(await this.prisma.bookingDocument.update({ where: { id: documentId }, data: { visibleToCustomer }, select: listSelect }));
   }
 
@@ -177,7 +177,7 @@ export class BookingDocumentsService implements OnApplicationBootstrap, OnModule
     if (!isStaff(actor)) throw AppError.forbidden();
     const doc = await this.prisma.bookingDocument.findUnique({ where: { id: documentId }, select: { bookingId: true, name: true, storageKey: true } });
     if (!doc) throw AppError.notFound("Document");
-    await this.bookings.findAccessible(actor, doc.bookingId, "update");
+    await this.bookings.findAccessible(actor, doc.bookingId, "attach");
     await this.prisma.bookingDocument.delete({ where: { id: documentId } });
     if (doc.storageKey) await this.storage.remove(doc.storageKey).catch((error) => this.logger.warn(`Could not delete file ${doc.storageKey}: ${error instanceof Error ? error.message : error}`));
     await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "booking.document_removed", entityType: "Booking", entityId: doc.bookingId, before: { name: doc.name } });

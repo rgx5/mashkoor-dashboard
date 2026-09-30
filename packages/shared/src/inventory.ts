@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CABIN_CLASSES, MEAL_PLANS, type CabinClass, type MealPlan } from "./constants";
+import { CABIN_CLASSES, MEAL_PLANS, type CabinClass, type MealPlan, type ProductType } from "./constants";
 import { listQuerySchema } from "./pagination";
 import { patchOf } from "./patch";
 
@@ -198,3 +198,23 @@ export const inventorySearchQuerySchema = z.object({
   to: z.iso.date().optional(),
 });
 export type InventorySearchQuery = z.output<typeof inventorySearchQuerySchema>;
+
+/** B2B search across both kinds of inventory — the agency's price, never Mashkoor's cost. */
+export interface B2BInventorySearchQuery {
+  kind: "HOTEL" | "FLIGHT";
+  productType: ProductType;
+  city?: string;
+  origin?: string;
+  destination?: string;
+  from?: string;
+  to?: string;
+}
+
+export type B2BFlightAvailability = Omit<FlightSeatBlockRow, "costPrice" | "notes" | "totalSeats" | "bookedSeats"> & { price: number };
+
+export interface B2BRoomAvailability {
+  hotel: RoomAvailability["hotel"];
+  roomType: RoomAvailability["roomType"];
+  stay: { id: string; startDate: string; endDate: string; available: number };
+  price: number;
+}

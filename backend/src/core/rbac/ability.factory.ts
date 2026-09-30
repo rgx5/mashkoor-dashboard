@@ -7,6 +7,7 @@ import type {
   AuditLog,
   Booking,
   Contact,
+  Currency,
   Customer,
   Destination,
   Faq,
@@ -41,7 +42,15 @@ export type Action =
   | "merge"
   | "export"
   /** See unmasked sensitive fields, e.g. passport numbers. */
-  | "reveal";
+  | "reveal"
+  /** Attach visas, tickets and vouchers to a booking. */
+  | "attach"
+  /** Post trip updates the customer or agency sees. */
+  | "notify"
+  /** Record and verify payments and issue payment links on a booking. */
+  | "collect"
+  /** Move money in a partner wallet (top-up, adjustment). */
+  | "funds";
 
 export type AppSubjects =
   | "all"
@@ -69,6 +78,7 @@ export type AppSubjects =
       Itinerary: Itinerary;
       NotificationLog: NotificationLog;
       Contact: Contact;
+      Currency: Currency;
     }>;
 
 export type AppAbility = PureAbility<[Action, AppSubjects], PrismaQuery>;
@@ -111,6 +121,7 @@ export class AbilityFactory {
         can("manage", "RatePeriod");
         can("manage", "FlightSeatBlock");
         can("manage", "PricingRule");
+        can("manage", "Currency");
         can("manage", "Booking");
         // M08–M09: partner directory, KYC review and wallet administration.
         can("manage", "Partner");
@@ -143,12 +154,67 @@ export class AbilityFactory {
         can("read", "RatePeriod");
         can("read", "FlightSeatBlock");
         can("read", "PricingRule");
+        can("read", "Currency");
         // Own bookings plus the unassigned queue; cost/margin are hidden in the response, not by ability.
-        can(["read", "create", "update"], "Booking", { ownerId: user.id });
-        can(["read", "create", "update"], "Booking", { ownerId: null });
+        can(["read", "create", "update", "attach", "notify", "collect"], "Booking", { ownerId: user.id });
+        can(["read", "create", "update", "attach", "notify", "collect"], "Booking", { ownerId: null });
         // Own itineraries; shared templates have no owner.
         can(["read", "create", "update", "delete"], "Itinerary", { ownerId: user.id });
         can("read", "Itinerary", { ownerId: null });
+        break;
+
+      case "ACCOUNTS":
+        // Money only: payments, receivables, wallets and the money reports. Cannot edit bookings, leads or the catalog.
+        can("read", "User", { id: user.id });
+        can("read", "Customer");
+        can("read", "Traveler");
+        can(["read", "create"], "Activity");
+        can(["read", "update"], "Task", { assigneeId: user.id });
+        can("create", "Task");
+        can("read", "Booking");
+        can("collect", "Booking");
+        can("read", "Partner");
+        can("funds", "Partner");
+        can("manage", "Currency");
+        can("read", "Itinerary");
+        can("read", "InboundEvent");
+        break;
+
+      case "VISA_DOCS":
+        // Documents and travellers: visas, tickets, vouchers, passports. No prices or payments.
+        can("read", "User", { id: user.id });
+        can("read", "Customer");
+        can(["read", "create", "update", "reveal"], "Traveler");
+        can(["read", "create"], "Activity");
+        can(["read", "update"], "Task", { assigneeId: user.id });
+        can("create", "Task");
+        can("read", "Booking");
+        can(["attach", "notify"], "Booking");
+        can("read", "Itinerary");
+        break;
+
+      case "SUPPORT":
+        // Answers customers and agents: reads customers, leads and bookings, posts trip updates, logs notes.
+        can("read", "User", { id: user.id });
+        can(["read", "create", "update"], "Customer");
+        can("read", "Traveler");
+        can("read", "Lead");
+        can(["read", "create"], "Activity");
+        can(["read", "update"], "Task", { assigneeId: user.id });
+        can("create", "Task");
+        can(["read", "create", "update"], "Contact");
+        can("read", "Booking");
+        can("notify", "Booking");
+        can("read", "Itinerary");
+        break;
+
+      case "CONTENT":
+        // The public website's content only.
+        can("read", "User", { id: user.id });
+        can("manage", "Destination");
+        can("manage", "Package");
+        can("manage", "Testimonial");
+        can("manage", "Faq");
         break;
 
       case "PARTNER_ADMIN":

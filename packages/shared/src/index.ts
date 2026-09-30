@@ -5,6 +5,7 @@ export * from "./catalog";
 export * from "./constants";
 export * from "./contacts";
 export * from "./crm";
+export * from "./currency";
 export * from "./dashboard";
 export * from "./errors";
 export * from "./features";

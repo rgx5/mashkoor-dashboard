@@ -36,14 +36,14 @@ export class AdminTripUpdatesController {
   }
 
   @Post()
-  @CheckAbility("update", "Booking")
+  @CheckAbility("notify", "Booking")
   post(@CurrentUser() actor: RequestUser, @Body(new ZodPipe(tripUpdateInputSchema)) body: TripUpdateData) {
     return this.updates.post(actor, body.bookingId, body);
   }
 
   @Delete(":id")
   @HttpCode(204)
-  @CheckAbility("update", "Booking")
+  @CheckAbility("notify", "Booking")
   remove(@CurrentUser() actor: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
     return this.updates.remove(actor, id);
   }
@@ -69,7 +69,7 @@ export class AdminDocumentsController {
   }
 
   @Post()
-  @CheckAbility("update", "Booking")
+  @CheckAbility("attach", "Booking")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_DOCUMENT_BYTES } }))
   upload(
     @CurrentUser() actor: RequestUser,
@@ -89,14 +89,14 @@ export class AdminDocumentsController {
 
   @Patch(":id/visibility")
   @HttpCode(200)
-  @CheckAbility("update", "Booking")
+  @CheckAbility("attach", "Booking")
   setVisibility(@CurrentUser() actor: RequestUser, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(documentVisibilitySchema)) body: { visibleToCustomer: boolean }) {
     return this.documents.setVisibility(actor, id, body.visibleToCustomer);
   }
 
   @Delete(":id")
   @HttpCode(204)
-  @CheckAbility("update", "Booking")
+  @CheckAbility("attach", "Booking")
   remove(@CurrentUser() actor: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
     return this.documents.remove(actor, id);
   }

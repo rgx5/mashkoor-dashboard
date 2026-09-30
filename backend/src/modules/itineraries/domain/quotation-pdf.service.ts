@@ -208,11 +208,18 @@ export class QuotationPdfService {
     it.lines.forEach((line, i) => {
       const kind = line.kind && line.kind !== "OTHER" ? ITINERARY_LINE_KIND_LABELS[line.kind] : "";
       const detail = line.detail ?? "";
+      // What the supplier actually billed, for a foreign-currency line — informational only; unitPrice (INR) is
+      // already the converted figure everything else uses.
+      const fxNote = line.currency && line.currency !== "INR" && line.foreignAmount != null && line.fxRate
+        ? `${line.currency} ${line.foreignAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} @ ${money(line.fxRate)}/${line.currency}`
+        : "";
       font(true).fontSize(9);
       const th = doc.heightOfString(line.description, { width: wName - 12 });
       font().fontSize(8);
       const dh = detail ? doc.heightOfString(detail, { width: wName - 12 }) + 4 : 0;
-      const h = Math.max(th + dh + (kind ? 11 : 0) + 14, 34);
+      font(false, true).fontSize(7);
+      const fh = fxNote ? doc.heightOfString(fxNote, { width: wName - 12 }) + 3 : 0;
+      const h = Math.max(th + dh + fh + (kind ? 11 : 0) + 14, 34);
       if (doc.y + h > BOTTOM) {
         doc.addPage();
         tableHead();
@@ -226,6 +233,7 @@ export class QuotationPdfService {
       }
       font(true).fontSize(9).fillColor(INK).text(line.description, xs[1]! + 6, ty, { width: wName - 12 });
       if (detail) font(false, true).fontSize(8).fillColor(MUTED).text(detail, xs[1]! + 6, ty + th + 4, { width: wName - 12 });
+      if (fxNote) font(false, true).fontSize(7).fillColor(PLUM).text(fxNote, xs[1]! + 6, ty + th + dh + 4, { width: wName - 12 });
       const amount = line.quantity * line.unitPrice;
       const tax = Math.round(((Math.max(0, amount - (line.discount ?? 0))) * (line.taxPercent ?? 0)) / 100);
       font().fontSize(8.5).fillColor(INK);

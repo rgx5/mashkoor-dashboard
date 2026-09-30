@@ -15,6 +15,7 @@ import { ActivitiesModule } from "./modules/activities/activities.module";
 import { BookingsModule } from "./modules/bookings/bookings.module";
 import { CatalogModule } from "./modules/catalog/catalog.module";
 import { CompanyModule } from "./modules/company/company.module";
+import { CurrenciesModule } from "./modules/currencies/currencies.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { CustomersModule } from "./modules/customers/customers.module";
 import { DashboardModule } from "./modules/dashboard/dashboard.module";
@@ -66,6 +67,7 @@ const isProduction = process.env.NODE_ENV === "production";
     SearchModule,
     AdministrationModule,
     CompanyModule,
+    CurrenciesModule,
     ContactsModule,
     TripExperienceModule,
   ],

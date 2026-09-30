@@ -5,7 +5,7 @@ export type Portal = (typeof PORTALS)[number];
 export const USER_TYPES = ["STAFF", "PARTNER", "CUSTOMER"] as const;
 export type UserType = (typeof USER_TYPES)[number];
 
-export const ROLES = ["SUPER_ADMIN", "OPS_MANAGER", "SALES_AGENT", "PARTNER_ADMIN", "PARTNER_USER", "CUSTOMER"] as const;
+export const ROLES = ["SUPER_ADMIN", "OPS_MANAGER", "SALES_AGENT", "ACCOUNTS", "VISA_DOCS", "SUPPORT", "CONTENT", "PARTNER_ADMIN", "PARTNER_USER", "CUSTOMER"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const USER_STATUSES = ["INVITED", "ACTIVE", "DISABLED"] as const;
@@ -18,13 +18,28 @@ export const PORTAL_USER_TYPE: Record<Portal, UserType> = {
   b2c: "CUSTOMER",
 };
 
-export const STAFF_ROLES = ["SUPER_ADMIN", "OPS_MANAGER", "SALES_AGENT"] as const satisfies readonly Role[];
+/** What each staff role is for, shown when inviting or editing a user. The real permissions live in the backend's ability factory. */
+export const ROLE_DESCRIPTIONS: Partial<Record<Role, string>> = {
+  SUPER_ADMIN: "Everything, including users, company profile, audit log and settings.",
+  OPS_MANAGER: "Runs day-to-day operations: leads, customers, bookings, inventory, pricing, partners, catalog and all reports.",
+  SALES_AGENT: "Works their own leads, customers, quotations and bookings. Cannot see cost or margin.",
+  ACCOUNTS: "Records and verifies payments, issues payment links, manages partner wallets, and sees receivables and money reports. Cannot edit bookings, leads or catalog.",
+  VISA_DOCS: "Uploads visas, tickets and vouchers to bookings, manages traveller and passport details, and notifies customers. Can see bookings read-only; cannot handle payments or see cost.",
+  SUPPORT: "Answers customers and agents: sees customers, leads and bookings read-only, posts trip updates and logs notes. Cannot handle payments or see cost.",
+  CONTENT: "Edits website content only: packages, departures, destinations, testimonials and FAQs. No customer or booking data.",
+};
+
+export const STAFF_ROLES = ["SUPER_ADMIN", "OPS_MANAGER", "SALES_AGENT", "ACCOUNTS", "VISA_DOCS", "SUPPORT", "CONTENT"] as const satisfies readonly Role[];
 export const PARTNER_ROLES = ["PARTNER_ADMIN", "PARTNER_USER"] as const satisfies readonly Role[];
 
 export const ROLE_LABELS: Record<Role, string> = {
   SUPER_ADMIN: "Super Admin",
   OPS_MANAGER: "Operations Manager",
   SALES_AGENT: "Sales / Booking Agent",
+  ACCOUNTS: "Accounts / Finance",
+  VISA_DOCS: "Visa / Documentation",
+  SUPPORT: "Customer Support",
+  CONTENT: "Content / Marketing",
   PARTNER_ADMIN: "Partner Admin",
   PARTNER_USER: "Partner User",
   CUSTOMER: "Customer",

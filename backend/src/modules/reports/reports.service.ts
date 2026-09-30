@@ -4,9 +4,12 @@ import {
   BOOKING_STATUS_LABELS,
   ERROR_CODES,
   LEAD_SOURCE_LABELS,
+  LEAD_STAGE_LABELS,
   PRODUCT_TYPE_LABELS,
   REPORT_INFO,
+  TRIP_TYPE_LABELS,
   type LeadSource,
+  type LeadStage,
   type ReportName,
   type ReportQuery,
   type ReportResult,
@@ -33,6 +36,7 @@ interface Range {
 
 type VerifiedPayments = { amount: number; direction: "COLLECTION" | "REFUND" }[];
 const netCollected = (payments: VerifiedPayments) => payments.reduce((sum, p) => sum + (p.direction === "COLLECTION" ? p.amount : -p.amount), 0);
+const percent = (part: number, whole: number) => (whole ? Math.round((part / whole) * 1000) / 10 : 0);
 
 /** M14 · Reports. Every report returns the same table shape, so one screen renders (and exports) all of them. */
 @Injectable()
@@ -59,6 +63,12 @@ export class ReportsService {
         return this.leadSources(actor, range);
       case "staff-performance":
         return this.staffPerformance(actor, range);
+      case "leads-funnel":
+        return this.leadsFunnel(actor, range);
+      case "partner-activity":
+        return this.partnerActivity(actor, range);
+      case "upcoming-travel":
+        return this.upcomingTravel(actor);
     }
   }
 
@@ -66,14 +76,14 @@ export class ReportsService {
 
   private async sales(actor: RequestUser, range: Range): Promise<ReportResult> {
     const ability = this.abilities.forUser(actor);
-    if (!ability.can("read", "Booking")) throw AppError.forbidden();
+    if (!ability.can("collect", "Booking")) throw AppError.forbidden();
     // Cost and margin are manager-only, exactly as on the booking screens.
     const showCost = ability.can("manage", "Booking");
 
     const bookings = await this.prisma.booking.findMany({
       where: { AND: [accessibleBy(ability).Booking, { createdAt: { gte: range.gte, lte: range.lte }, status: { notIn: ["CANCELLED", "FAILED", "INQUIRY"] } }] },
       include: {
-        customer: { select: { fullName: true } },
+        customer: { select: { id: true, fullName: true } },
         owner: { select: { name: true } },
         payments: { where: { status: "VERIFIED" }, select: { amount: true, direction: true } },
       },
@@ -84,6 +94,8 @@ export class ReportsService {
     const rows = bookings.map((b) => {
       const collected = netCollected(b.payments);
       const row: Record<string, string | number | null> = {
+        bookingId: b.id,
+        customerId: b.customer.id,
         date: toDateOnly(b.createdAt),
         refNo: b.refNo,
         customer: b.customer.fullName,
@@ -133,11 +145,11 @@ export class ReportsService {
 
   private async ageing(actor: RequestUser): Promise<ReportResult> {
     const ability = this.abilities.forUser(actor);
-    if (!ability.can("read", "Booking")) throw AppError.forbidden();
+    if (!ability.can("collect", "Booking")) throw AppError.forbidden();
 
     const bookings = await this.prisma.booking.findMany({
       where: { AND: [accessibleBy(ability).Booking, { status: { in: ["PENDING_PAYMENT", "IN_PROGRESS", "CONFIRMED", "COMPLETED"] } }] },
-      include: { customer: { select: { fullName: true, phone: true } }, payments: { where: { status: "VERIFIED" }, select: { amount: true, direction: true } } },
+      include: { customer: { select: { id: true, fullName: true, phone: true } }, payments: { where: { status: "VERIFIED" }, select: { amount: true, direction: true } } },
       take: 5000,
     });
 
@@ -151,6 +163,8 @@ export class ReportsService {
         const collected = netCollected(b.payments);
         const ageDays = Math.floor((now - b.createdAt.getTime()) / MS_DAY);
         return {
+          bookingId: b.id,
+          customerId: b.customer.id,
           refNo: b.refNo,
           customer: b.customer.fullName,
           phone: b.customer.phone,
@@ -193,11 +207,11 @@ export class ReportsService {
 
   private async daybook(actor: RequestUser, range: Range): Promise<ReportResult> {
     const ability = this.abilities.forUser(actor);
-    if (!ability.can("read", "Booking")) throw AppError.forbidden();
+    if (!ability.can("collect", "Booking")) throw AppError.forbidden();
 
     const payments = await this.prisma.payment.findMany({
       where: { AND: [{ booking: accessibleBy(ability).Booking }, { createdAt: { gte: range.gte, lte: range.lte } }] },
-      include: { booking: { select: { refNo: true, customer: { select: { fullName: true } } } } },
+      include: { booking: { select: { id: true, refNo: true, customer: { select: { fullName: true } } } } },
       orderBy: { createdAt: "desc" },
       take: 5000,
     });
@@ -237,6 +251,7 @@ export class ReportsService {
         { key: "recordedBy", label: "Recorded by", kind: "text" },
       ],
       rows: payments.map((p) => ({
+        bookingId: p.booking.id,
         date: toDateOnly(p.createdAt),
         receiptNo: p.receiptNo,
         booking: p.booking.refNo,
@@ -269,9 +284,8 @@ export class ReportsService {
       if (lead.stage === "LOST") row.lost++;
       bySource.set(lead.source, row);
     }
-    const percent = (part: number, whole: number) => (whole ? Math.round((part / whole) * 1000) / 10 : 0);
     const rows = [...bySource.entries()]
-      .map(([source, v]) => ({ source: LEAD_SOURCE_LABELS[source], total: v.total, open: v.total - v.won - v.lost, won: v.won, lost: v.lost, conversion: percent(v.won, v.total) }))
+      .map(([source, v]) => ({ sourceKey: source, source: LEAD_SOURCE_LABELS[source], total: v.total, open: v.total - v.won - v.lost, won: v.won, lost: v.lost, conversion: percent(v.won, v.total) }))
       .sort((a, b) => b.total - a.total);
     const won = rows.reduce((sum, row) => sum + row.won, 0);
 
@@ -341,6 +355,152 @@ export class ReportsService {
         { key: "bookings", label: "Bookings", kind: "number" },
         { key: "sales", label: "Sales value", kind: "money" },
         { key: "tasksDone", label: "Tasks done", kind: "number" },
+      ],
+      rows,
+    };
+  }
+
+  // ─── Leads funnel ─────────────────────────────────────────────────────────
+
+  /** Stages a lead created in the period has reached, using its CURRENT stage — the same simplification "lead
+   * sources" uses. A lead that was lost isn't counted at any stage past NEW: we don't keep stage-history events,
+   * so how far it got before being marked lost isn't knowable without guessing. */
+  private async leadsFunnel(actor: RequestUser, range: Range): Promise<ReportResult> {
+    const ability = this.abilities.forUser(actor);
+    if (!ability.can("read", "Lead")) throw AppError.forbidden();
+
+    const leads = await this.prisma.lead.findMany({
+      where: { AND: [accessibleBy(ability).Lead, { createdAt: { gte: range.gte, lte: range.lte } }] },
+      select: { stage: true },
+    });
+
+    const order: LeadStage[] = ["NEW", "CONTACTED", "QUOTATION", "WAITING_PAYMENT", "WON"];
+    const total = leads.length;
+    const rows = order.map((stage, i) => {
+      const reached = leads.filter((l) => l.stage !== "LOST" && order.indexOf(l.stage) >= i).length;
+      return { stageKey: stage as string, stage: LEAD_STAGE_LABELS[stage], reached, percent: percent(reached, total) };
+    });
+    const lost = leads.filter((l) => l.stage === "LOST").length;
+    rows.push({ stageKey: "LOST", stage: LEAD_STAGE_LABELS.LOST, reached: lost, percent: percent(lost, total) });
+    const won = rows[order.length - 1]!.reached;
+
+    return {
+      name: "leads-funnel",
+      title: REPORT_INFO["leads-funnel"].title,
+      period: { from: range.from, to: range.to },
+      summary: [
+        { label: "Leads", value: total, kind: "number" },
+        { label: "Won", value: won, kind: "number" },
+        { label: "Lost", value: lost, kind: "number" },
+        { label: "Conversion", value: percent(won, total), kind: "percent" },
+      ],
+      columns: [
+        { key: "stage", label: "Stage", kind: "text" },
+        { key: "reached", label: "Reached", kind: "number" },
+        { key: "percent", label: "% of leads", kind: "percent" },
+      ],
+      rows,
+    };
+  }
+
+  // ─── Partner activity ─────────────────────────────────────────────────────
+
+  private async partnerActivity(actor: RequestUser, range: Range): Promise<ReportResult> {
+    if (!this.abilities.forUser(actor).can("read", "Partner")) throw AppError.forbidden();
+
+    const period = { gte: range.gte, lte: range.lte };
+    const sold: Prisma.BookingWhereInput = { status: { notIn: ["CANCELLED", "FAILED", "INQUIRY"] } };
+    const [partners, leadCounts, bookingAgg] = await Promise.all([
+      this.prisma.partner.findMany({ where: { status: "APPROVED" }, include: { wallet: true }, orderBy: { companyName: "asc" } }),
+      this.prisma.lead.groupBy({ by: ["partnerId"], where: { createdAt: period, partnerId: { not: null } }, _count: true }),
+      this.prisma.booking.groupBy({ by: ["partnerId"], where: { ...sold, createdAt: period, partnerId: { not: null } }, _count: true, _sum: { totalSell: true } }),
+    ]);
+
+    const rows = partners
+      .map((p) => {
+        const booking = bookingAgg.find((b) => b.partnerId === p.id);
+        const balance = p.wallet?.balance ?? 0;
+        const creditLimit = p.wallet?.creditLimit ?? 0;
+        return {
+          partnerId: p.id,
+          partner: p.companyName,
+          leads: leadCounts.find((l) => l.partnerId === p.id)?._count ?? 0,
+          bookings: booking?._count ?? 0,
+          sales: booking?._sum.totalSell ?? 0,
+          balance,
+          creditLimit,
+          available: balance + creditLimit,
+        };
+      })
+      .sort((a, b) => b.sales - a.sales);
+
+    return {
+      name: "partner-activity",
+      title: REPORT_INFO["partner-activity"].title,
+      period: { from: range.from, to: range.to },
+      summary: [
+        { label: "Partners", value: rows.length, kind: "number" },
+        { label: "Leads", value: rows.reduce((sum, r) => sum + r.leads, 0), kind: "number" },
+        { label: "Bookings", value: rows.reduce((sum, r) => sum + r.bookings, 0), kind: "number" },
+        { label: "Sales value", value: rows.reduce((sum, r) => sum + r.sales, 0), kind: "money" },
+      ],
+      columns: [
+        { key: "partner", label: "Partner", kind: "text" },
+        { key: "leads", label: "Leads", kind: "number" },
+        { key: "bookings", label: "Bookings", kind: "number" },
+        { key: "sales", label: "Sales value", kind: "money" },
+        { key: "balance", label: "Wallet balance", kind: "money" },
+        { key: "creditLimit", label: "Credit limit", kind: "money" },
+        { key: "available", label: "Available", kind: "money" },
+      ],
+      rows,
+    };
+  }
+
+  // ─── Upcoming travel ──────────────────────────────────────────────────────
+
+  /** Point in time, like "ageing" — always the next 30 days, whatever date range was asked for. */
+  private async upcomingTravel(actor: RequestUser): Promise<ReportResult> {
+    const ability = this.abilities.forUser(actor);
+    if (!ability.can("read", "Booking")) throw AppError.forbidden();
+
+    const from = new Date();
+    const to = new Date(from.getTime() + 30 * MS_DAY);
+    const bookings = await this.prisma.booking.findMany({
+      where: { AND: [accessibleBy(ability).Booking, { travelFrom: { gte: from, lte: to }, status: { in: ["PENDING_PAYMENT", "IN_PROGRESS", "CONFIRMED"] } }] },
+      include: { customer: { select: { fullName: true, phone: true } }, owner: { select: { name: true } }, payments: { where: { status: "VERIFIED" }, select: { amount: true, direction: true } } },
+      orderBy: { travelFrom: "asc" },
+      take: 5000,
+    });
+
+    const rows = bookings.map((b) => ({
+      travelFrom: toDateOnly(b.travelFrom),
+      refNo: b.refNo,
+      customer: b.customer.fullName,
+      phone: b.customer.phone,
+      destination: b.destination,
+      tripType: TRIP_TYPE_LABELS[b.tripType],
+      owner: b.owner?.name ?? "Unassigned",
+      due: Math.max(0, b.totalSell - netCollected(b.payments)),
+    }));
+
+    return {
+      name: "upcoming-travel",
+      title: REPORT_INFO["upcoming-travel"].title,
+      period: { from: toDateOnly(from)!, to: toDateOnly(to)! },
+      summary: [
+        { label: "Departures", value: rows.length, kind: "number" },
+        { label: "Balance due", value: rows.reduce((sum, r) => sum + r.due, 0), kind: "money" },
+      ],
+      columns: [
+        { key: "travelFrom", label: "Departure", kind: "date" },
+        { key: "refNo", label: "Booking", kind: "text" },
+        { key: "customer", label: "Customer", kind: "text" },
+        { key: "phone", label: "Mobile", kind: "text" },
+        { key: "destination", label: "Destination", kind: "text" },
+        { key: "tripType", label: "Trip type", kind: "text" },
+        { key: "owner", label: "Owner", kind: "text" },
+        { key: "due", label: "Balance due", kind: "money" },
       ],
       rows,
     };

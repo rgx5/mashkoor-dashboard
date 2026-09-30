@@ -1,0 +1,27 @@
+# The database — the only thing that runs in Docker. Postgres listens on 127.0.0.1 only, so the pm2 backend on the same
+# server can reach it and nothing from the internet can.
+#   cp .env.example .env   (set the password), then:   docker compose up -d
+name: mashkoor-db
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: mashkoor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mashkoor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: mashkoor
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mashkoor"]
+      interval: 10s
+      retries: 10
+    # A small server: keep Postgres modest so the Node apps have memory too.
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=50"]
+
+volumes:
+  pgdata:

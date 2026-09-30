@@ -17,6 +17,8 @@ import {
   type FlightSegment,
   type HotelStay,
   type PaymentScheduleItem,
+  BASE_CURRENCY,
+  type CurrencyRow,
 } from "@mashkoor/shared";
 import { Copy, Download, ExternalLink, Eye, FileCheck2, Link2, Mail, Plus, Save, Send, Trash2, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -31,6 +33,7 @@ import { FormError, inputClass, SelectField, TextareaField, TextField } from "@/
 import { Badge, Card } from "@/core/ui/layout";
 import { BackLink } from "@/core/ui/misc";
 import { FullPageSpinner } from "@/core/ui/Spinner";
+import { useCurrencies } from "@/modules/currencies";
 import { CustomerPicker } from "@/modules/customers/CustomerPicker";
 import {
   useConvertItinerary,
@@ -138,6 +141,7 @@ export function ItineraryEditorPage() {
   const navigate = useNavigate();
   const ability = useAbility("admin");
   const { data: existing, isLoading } = useItinerary(id ?? "");
+  const { data: currencies } = useCurrencies();
   const create = useCreateItinerary();
   const update = useUpdateItinerary();
 
@@ -274,7 +278,7 @@ export function ItineraryEditorPage() {
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-base font-semibold">Pricing</h2>
               {canEdit && (
-                <Button size="sm" variant="secondary" onClick={() => patch({ lines: [...form.lines, { kind: "OTHER", description: "", detail: null, quantity: 1, unitPrice: 0, discount: 0, taxPercent: 0 }] })}>
+                <Button size="sm" variant="secondary" onClick={() => patch({ lines: [...form.lines, { kind: "OTHER", description: "", detail: null, quantity: 1, unitPrice: 0, currency: BASE_CURRENCY, foreignAmount: null, fxRate: null, discount: 0, taxPercent: 0 }] })}>
                   <Plus className="h-4 w-4" aria-hidden /> Add line
                 </Button>
               )}
@@ -293,13 +297,14 @@ export function ItineraryEditorPage() {
                     </select>
                     <input aria-label="Description" className={inputClass} placeholder="Description, e.g. Hotel-Triple-Voco Makkah" disabled={!canEdit} value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
                     <input aria-label="Quantity" type="number" min={1} className={inputClass} disabled={!canEdit} value={l.quantity} onChange={(e) => setLine(i, { quantity: Number(e.target.value) })} />
-                    <input aria-label="Unit price" type="number" min={0} className={inputClass} disabled={!canEdit} value={l.unitPrice} onChange={(e) => setLine(i, { unitPrice: Number(e.target.value) })} />
+                    <input aria-label="Unit price (₹)" type="number" min={0} className={inputClass} disabled={!canEdit} value={l.unitPrice} onChange={(e) => setLine(i, { unitPrice: Number(e.target.value) })} />
                     {canEdit && (
                       <button type="button" aria-label="Remove line" className="text-red-600" onClick={() => patch({ lines: form.lines.filter((_, n) => n !== i) })}>
                         <Trash2 className="h-4 w-4" aria-hidden />
                       </button>
                     )}
                   </div>
+                  <LineCurrencyRow line={l} currencies={currencies ?? []} disabled={!canEdit} onChange={(changes) => setLine(i, changes)} />
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-500">
                     <label className="flex items-center gap-1.5">
                       Less (₹)
@@ -468,6 +473,51 @@ export function ItineraryEditorPage() {
         </aside>
       </div>
     </>
+  );
+}
+
+/** Only shown once a line is priced in something other than INR — picking a supplier's currency and typing the
+ * amount they billed fills in the unit price (in ₹) automatically; it stays editable afterwards. */
+function LineCurrencyRow({ line, currencies, disabled, onChange }: { line: ItineraryLine; currencies: CurrencyRow[]; disabled: boolean; onChange: (changes: Partial<ItineraryLine>) => void }) {
+  const currency = line.currency ?? BASE_CURRENCY;
+  const isForeign = currency !== BASE_CURRENCY;
+
+  const recompute = (foreignAmount: number | null, fxRate: number | null) => onChange({ foreignAmount, fxRate, unitPrice: foreignAmount != null && fxRate ? Math.round(foreignAmount * fxRate) : 0 });
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <select
+        aria-label="Currency"
+        className={`${inputClass} w-auto`}
+        disabled={disabled}
+        value={currency}
+        onChange={(e) => {
+          const code = e.target.value;
+          if (code === BASE_CURRENCY) onChange({ currency: code, foreignAmount: null, fxRate: null });
+          else onChange({ currency: code, fxRate: currencies.find((c) => c.code === code)?.rateToInr ?? line.fxRate ?? 1 });
+        }}
+      >
+        <option value={BASE_CURRENCY}>{BASE_CURRENCY}</option>
+        {currencies.filter((c) => c.code !== BASE_CURRENCY).map((c) => (
+          <option key={c.code} value={c.code}>
+            {c.code} — {c.name}
+          </option>
+        ))}
+      </select>
+      {isForeign && (
+        <>
+          <label className="flex items-center gap-1.5 text-xs text-ink-500">
+            Amount in {currency}
+            <input aria-label={`Amount in ${currency}`} type="number" min={0} step="0.01" className={`${inputClass} w-28`} disabled={disabled} value={line.foreignAmount ?? ""} onChange={(e) => recompute(e.target.value === "" ? null : Number(e.target.value), line.fxRate ?? 1)} />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-ink-500">
+            Rate (₹ per {currency})
+            <input aria-label="Exchange rate" type="number" min={0} step="0.0001" className={`${inputClass} w-24`} disabled={disabled} value={line.fxRate ?? ""} onChange={(e) => recompute(line.foreignAmount ?? null, e.target.value === "" ? null : Number(e.target.value))} />
+          </label>
+          <span className="text-xs text-ink-400">Fills in the ₹ unit price — edit it above afterwards if you need to adjust it.</span>
+        </>
+      )}
+    </div>
   );
 }
 

@@ -163,7 +163,7 @@ export function BookingDetailPage() {
             )}
           </Card>
 
-          <BookingPaymentsPanel bookingId={booking.id} />
+          {ability.can("collect", "Booking") && <BookingPaymentsPanel bookingId={booking.id} />}
           <TripExperiencePanel bookingId={booking.id} />
         </div>
 

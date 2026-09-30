@@ -26,19 +26,19 @@ export class AdminWalletController {
   }
 
   @Post("topup")
-  @CheckAbility("manage", "Partner")
+  @CheckAbility("funds", "Partner")
   topUp(@CurrentUser() actor: RequestUser, @Param("partnerId", ParseUUIDPipe) partnerId: string, @Body(new ZodPipe(walletTopUpSchema)) body: WalletTopUpInput) {
     return this.wallet.topUp(actor, partnerId, body);
   }
 
   @Post("adjust")
-  @CheckAbility("manage", "Partner")
+  @CheckAbility("funds", "Partner")
   adjust(@CurrentUser() actor: RequestUser, @Param("partnerId", ParseUUIDPipe) partnerId: string, @Body(new ZodPipe(walletAdjustSchema)) body: WalletAdjustInput) {
     return this.wallet.adjust(actor, partnerId, body);
   }
 
   @Post("credit-limit")
-  @CheckAbility("manage", "Partner")
+  @CheckAbility("funds", "Partner")
   creditLimit(@CurrentUser() actor: RequestUser, @Param("partnerId", ParseUUIDPipe) partnerId: string, @Body(new ZodPipe(walletCreditLimitSchema)) body: WalletCreditLimitInput) {
     return this.wallet.setCreditLimit(actor, partnerId, body.creditLimit);
   }

@@ -41,7 +41,16 @@ export const itineraryLineSchema = z.object({
   /** Dates, nights, sector or passengers — printed under the description on the quotation. */
   detail: z.string().trim().max(3000).optional().nullable().transform((v) => v || null),
   quantity: z.coerce.number().int().min(1).max(999).default(1),
+  /** Always INR, whole rupees — the actual figure every total, the PDF and the converted booking use. For a
+   * foreign-currency line this is `foreignAmount * fxRate`, rounded; the UI computes it, it isn't recomputed here. */
   unitPrice: z.coerce.number().int().min(0),
+  /** ISO code the supplier actually billed in, e.g. "SAR" for a Saudi hotel. "INR" means `foreignAmount`/`fxRate` are unused. */
+  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/).default("INR"),
+  /** Per-unit price in `currency`, before conversion. Null/omitted when `currency` is INR. */
+  foreignAmount: z.coerce.number().min(0).nullable().optional(),
+  /** INR per 1 unit of `currency`, snapshotted from the Currency table when this line was priced — never re-derived
+   * later, so updating a rate afterwards can't silently change what a customer was already quoted. */
+  fxRate: z.coerce.number().positive().nullable().optional(),
   /** Discount on this line, in rupees. */
   discount: z.coerce.number().int().min(0).default(0),
   /** Tax on this line as a percentage of (amount - discount). */

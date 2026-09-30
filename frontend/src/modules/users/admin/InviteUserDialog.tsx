@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { createStaffUserSchema, ROLE_LABELS, STAFF_ROLES, type CreateStaffUserInput } from "@mashkoor/shared";
+import { createStaffUserSchema, ROLE_DESCRIPTIONS, ROLE_LABELS, STAFF_ROLES, type CreateStaffUserInput } from "@mashkoor/shared";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import type { z } from "zod";
@@ -21,7 +21,7 @@ export function InviteUserDialog({ open, onClose }: { open: boolean; onClose: ()
 function InviteForm({ onDone }: { onDone: () => void }) {
   const invite = useInviteStaff();
   const [formError, setFormError] = useState<string | null>(null);
-  const { register, handleSubmit, setError, formState } = useForm<z.input<typeof createStaffUserSchema>, unknown, CreateStaffUserInput>({
+  const { register, handleSubmit, setError, watch, formState } = useForm<z.input<typeof createStaffUserSchema>, unknown, CreateStaffUserInput>({
     resolver: zodResolver(createStaffUserSchema),
     defaultValues: { role: "SALES_AGENT" },
   });
@@ -53,6 +53,7 @@ function InviteForm({ onDone }: { onDone: () => void }) {
           </option>
         ))}
       </SelectField>
+      <p className="-mt-2 rounded-lg bg-plum-50 px-3 py-2 text-xs text-plum-800">{ROLE_DESCRIPTIONS[watch("role") ?? "SALES_AGENT"]}</p>
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="secondary" onClick={onDone}>
           Cancel

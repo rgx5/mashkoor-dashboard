@@ -1,14 +1,22 @@
-import { BOOKING_STATUS_LABELS, BOOKING_STATUSES, LEAD_STAGE_LABELS, LEAD_STAGES, REPORT_INFO, type BookingStatus, type LeadStage, type ReportName } from "@mashkoor/shared";
+import { BOOKING_STATUS_LABELS, BOOKING_STATUSES, LEAD_STAGE_LABELS, LEAD_STAGES, REPORT_INFO, ROLE_LABELS, type BookingStatus, type LeadStage, type ReportName } from "@mashkoor/shared";
 import {
   Banknote,
   BadgeCheck,
   BookOpen,
   Building,
   CalendarClock,
+  CalendarRange,
   CheckCircle2,
   ChevronRight,
   Clock,
   CreditCard,
+  FileText,
+  Filter,
+  Globe,
+  MapPin,
+  Package,
+  ShieldAlert,
+  Star,
   Hourglass,
   ListTodo,
   Luggage,
@@ -35,8 +43,17 @@ import { Card } from "@/core/ui/layout";
 import { FullPageSpinner } from "@/core/ui/Spinner";
 import { useAdminDashboard } from "./api";
 
-const REPORT_ICONS: Record<ReportName, LucideIcon> = { sales: TrendingUp, ageing: Clock, daybook: BookOpen, "lead-sources": PieChart, "staff-performance": Trophy };
-const REPORT_ORDER: ReportName[] = ["sales", "ageing", "daybook", "lead-sources", "staff-performance"];
+const REPORT_ICONS: Record<ReportName, LucideIcon> = {
+  sales: TrendingUp,
+  ageing: Clock,
+  daybook: BookOpen,
+  "lead-sources": PieChart,
+  "leads-funnel": Filter,
+  "staff-performance": Trophy,
+  "partner-activity": Building,
+  "upcoming-travel": CalendarRange,
+};
+const REPORT_ORDER: ReportName[] = ["sales", "ageing", "daybook", "lead-sources", "leads-funnel", "staff-performance", "partner-activity", "upcoming-travel"];
 
 const LEAD_COLORS: Record<LeadStage, string> = {
   NEW: "bg-gold-400",
@@ -115,7 +132,8 @@ export function AdminDashboard() {
   if (isLoading) return <FullPageSpinner />;
   if (error || !data) return <p className="py-10 text-center text-sm text-red-600">{errorMessage(error, "Unable to load the dashboard")}</p>;
 
-  const { leads, bookings, tasks, payments, partners, receivables, departuresSoon, lowInventory } = data;
+  const { leads, bookings, tasks, payments, partners, receivables, departuresSoon, lowInventory, upcomingTrips, documents, content } = data;
+  const openLeads = Object.entries(leads.byStage).reduce((sum, [stage, n]) => (stage === "WON" || stage === "LOST" ? sum : sum + (n ?? 0)), 0);
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const dateLabel = new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "long" }).format(new Date());
@@ -130,6 +148,9 @@ export function AdminDashboard() {
     { label: "Leads with no owner", count: leads.unassigned, to: "/admin/leads?owner=unassigned", icon: Target },
     { label: "Partner applications", count: partners?.pendingApplications ?? 0, to: "/admin/partners?status=PENDING", icon: Building },
     { label: "Departing in 14 days, balance due", count: departuresSoon.length, to: "/admin/reports/ageing", icon: Clock },
+    { label: "Confirmed trips leaving soon with no documents", count: documents?.tripsWithoutDocuments.length ?? 0, to: "/admin/bookings", icon: FileText, urgent: true },
+    { label: "Travellers with passport problems", count: documents?.passportIssues.length ?? 0, to: "/admin/bookings", icon: ShieldAlert, urgent: true },
+    { label: "Customer reviews to approve", count: content?.reviewsToApprove ?? 0, to: "/admin/testimonials", icon: Star },
     { label: "Flights leaving soon, few seats left", count: lowInventory.flightsDepartingSoon.length, to: "/admin/flight-inventory", icon: Plane },
   ].filter((a) => a.count > 0);
   const attentionTotal = attention.reduce((sum, a) => sum + a.count, 0);
@@ -139,11 +160,22 @@ export function AdminDashboard() {
     { icon: Users, title: "Customers", add: ability.can("create", "Customer") ? "/admin/customers?new=1" : null, list: "/admin/customers", show: ability.can("read", "Customer") },
     { icon: Luggage, title: "Bookings", add: ability.can("create", "Booking") ? "/admin/bookings?new=1" : null, list: "/admin/bookings", show: ability.can("read", "Booking") },
     { icon: ListTodo, title: "Tasks", add: "/admin/tasks?new=1", list: "/admin/tasks", show: ability.can("read", "Task") },
-    { icon: CreditCard, title: "Payments", add: null, list: "/admin/payments", show: ability.can("read", "Booking") },
+    { icon: CreditCard, title: "Payments", add: null, list: "/admin/payments", show: ability.can("collect", "Booking") },
     { icon: Building, title: "Partners", add: null, list: "/admin/partners", show: ability.can("manage", "Partner") },
+    { icon: Package, title: "Packages", add: ability.can("create", "Package") ? "/admin/packages" : null, list: "/admin/packages", show: ability.can("manage", "Package") },
+    { icon: MapPin, title: "Destinations", add: ability.can("create", "Destination") ? "/admin/destinations" : null, list: "/admin/destinations", show: ability.can("manage", "Destination") },
+    { icon: Star, title: "Testimonials", add: null, list: "/admin/testimonials", show: ability.can("manage", "Testimonial") },
   ].filter((q) => q.show);
 
-  const reports = REPORT_ORDER.filter((name) => (name === "lead-sources" ? ability.can("read", "Lead") : name === "staff-performance" ? ability.can("manage", "Booking") : ability.can("read", "Booking")));
+  const reports = REPORT_ORDER.filter((name) =>
+    name === "lead-sources" || name === "leads-funnel"
+      ? ability.can("read", "Lead")
+      : name === "staff-performance"
+        ? ability.can("manage", "Booking")
+        : name === "partner-activity"
+          ? ability.can("read", "Partner")
+          : ability.can("read", "Booking"),
+  );
   const taskTotal = tasks.dueToday + tasks.overdue;
 
   return (
@@ -153,21 +185,55 @@ export function AdminDashboard() {
           <h1 className="text-xl font-semibold text-ink-900">
             {greeting}, {user?.name.split(" ")[0] ?? ""}
           </h1>
-          <p className="mt-0.5 text-sm text-ink-500">{attentionTotal > 0 ? `${attentionTotal} item${attentionTotal > 1 ? "s" : ""} need your attention today.` : "You're all caught up."}</p>
+          <p className="mt-0.5 text-sm text-ink-500">
+            <span className="mr-2 rounded-full bg-plum-50 px-2 py-0.5 text-xs font-semibold text-plum-700">{ROLE_LABELS[data.role]}</span>
+            {attentionTotal > 0 ? `${attentionTotal} item${attentionTotal > 1 ? "s" : ""} need your attention today.` : "You're all caught up."}
+          </p>
         </div>
         <p className="hidden text-sm font-medium text-ink-500 sm:block">{dateLabel}</p>
       </div>
 
-      {/* Money position for managers; pipeline for everyone else */}
+      {/* The top row follows the role: money for finance, documents for visa, content for the website team, pipeline for sales. */}
       <section aria-label="Overview" className="grid grid-cols-2 gap-2 rounded-xl bg-gradient-to-br from-plum-800 to-plum-950 p-2 shadow-sm sm:grid-cols-3 lg:grid-cols-6">
-        {receivables ? (
+        {content ? (
+          <>
+            <Tile icon={Package} label="Packages" hint="live on website" value={String(content.publishedPackages)} to="/admin/packages" />
+            <Tile icon={FileText} label="Draft packages" hint="not published" value={String(content.draftPackages)} to="/admin/packages" warn={content.draftPackages > 0} />
+            <Tile icon={MapPin} label="Destinations" hint="live on website" value={String(content.publishedDestinations)} to="/admin/destinations" />
+            <Tile icon={Globe} label="Draft destinations" hint="not published" value={String(content.draftDestinations)} to="/admin/destinations" warn={content.draftDestinations > 0} />
+            <Tile icon={Star} label="Reviews" hint="to approve" value={String(content.reviewsToApprove)} to="/admin/testimonials" warn={content.reviewsToApprove > 0} />
+            <Tile icon={Plane} label="Departures" hint="open for booking" value={String(content.openDepartures)} to="/admin/packages" />
+          </>
+        ) : documents ? (
+          <>
+            <Tile icon={Luggage} label="Trips leaving" hint="next 14 days" value={String(upcomingTrips.length)} to="/admin/bookings" />
+            <Tile icon={FileText} label="No documents" hint="trips within 30 days" value={String(documents.tripsWithoutDocuments.length)} to="/admin/bookings" warn={documents.tripsWithoutDocuments.length > 0} />
+            <Tile icon={ShieldAlert} label="Passport issues" hint="within 60 days" value={String(documents.passportIssues.length)} warn={documents.passportIssues.length > 0} />
+            <Tile icon={Users} label="Customers" value="Open" to="/admin/customers" />
+            <Tile icon={ListTodo} label="Tasks" hint="due now" value={String(taskTotal)} to="/admin/tasks" warn={tasks.overdue > 0} />
+            <Tile icon={Clock} label="Departing soon" hint="balance due" value={String(departuresSoon.length)} />
+          </>
+        ) : receivables ? (
           <>
             <Tile icon={Banknote} label="Collected" hint="this month" value={formatINR(receivables.collectedThisMonth)} to="/admin/reports/daybook" />
             <Tile icon={Hourglass} label="Pending dues" value={formatINR(receivables.pendingFromCustomers.amount)} hint={`${receivables.pendingFromCustomers.bookings} bookings`} to="/admin/reports/ageing" warn={receivables.pendingFromCustomers.amount > 0} />
             <Tile icon={PiggyBank} label="Advance" hint="on unconfirmed" value={formatINR(receivables.advanceFromCustomers)} />
-            <Tile icon={TrendingUp} label="Sales" hint="this month" value={formatINR(bookings.revenueThisMonth ?? 0)} to="/admin/reports/sales" />
-            <Tile icon={Percent} label="Margin" hint="this month" value={formatINR(bookings.marginThisMonth ?? 0)} />
+            {bookings.revenueThisMonth !== null ? (
+              <Tile icon={TrendingUp} label="Sales" hint="this month" value={formatINR(bookings.revenueThisMonth)} to="/admin/reports/sales" />
+            ) : (
+              <Tile icon={Clock} label="Departing soon" hint="balance due" value={String(departuresSoon.length)} to="/admin/reports/ageing" />
+            )}
+            {bookings.marginThisMonth !== null ? <Tile icon={Percent} label="Margin" hint="this month" value={formatINR(bookings.marginThisMonth)} /> : <Tile icon={ListTodo} label="Tasks" hint="due now" value={String(taskTotal)} to="/admin/tasks" warn={tasks.overdue > 0} />}
             <Tile icon={BadgeCheck} label="To verify" hint="payments" value={String(payments?.pendingVerification ?? 0)} to="/admin/payments?status=PENDING" warn={(payments?.pendingVerification ?? 0) > 0} />
+          </>
+        ) : data.role === "SUPPORT" ? (
+          <>
+            <Tile icon={Luggage} label="Trips leaving" hint="next 14 days" value={String(upcomingTrips.length)} to="/admin/bookings" />
+            <Tile icon={UserPlus} label="New leads" hint="today" value={String(leads.newToday)} to="/admin/leads" />
+            <Tile icon={Target} label="Open leads" value={String(openLeads)} to="/admin/leads" />
+            <Tile icon={CalendarClock} label="Overdue" hint="follow-ups" value={String(leads.overdueFollowUps)} to="/admin/leads?followUp=overdue&view=list" warn={leads.overdueFollowUps > 0} />
+            <Tile icon={ListTodo} label="Tasks" hint="due now" value={String(taskTotal)} to="/admin/tasks" warn={tasks.overdue > 0} />
+            <Tile icon={Users} label="Customers" value="Open" to="/admin/customers" />
           </>
         ) : (
           <>
@@ -210,10 +276,60 @@ export function AdminDashboard() {
             )}
           </Card>
 
-          <Card className="grid gap-5 p-4 shadow-xs sm:grid-cols-2">
-            <Segmented<LeadStage> title="Leads by stage" data={leads.byStage} labels={LEAD_STAGE_LABELS} colors={LEAD_COLORS} order={LEAD_STAGES} />
-            <Segmented<BookingStatus> title="Bookings by status" data={bookings.byStatus} labels={BOOKING_STATUS_LABELS} colors={BOOKING_COLORS} order={BOOKING_STATUSES} />
-          </Card>
+          {(ability.can("read", "Lead") || ability.can("read", "Booking")) && (
+            <Card className="grid gap-5 p-4 shadow-xs sm:grid-cols-2">
+              {ability.can("read", "Lead") && <Segmented<LeadStage> title="Leads by stage" data={leads.byStage} labels={LEAD_STAGE_LABELS} colors={LEAD_COLORS} order={LEAD_STAGES} />}
+              {ability.can("read", "Booking") && <Segmented<BookingStatus> title="Bookings by status" data={bookings.byStatus} labels={BOOKING_STATUS_LABELS} colors={BOOKING_COLORS} order={BOOKING_STATUSES} />}
+            </Card>
+          )}
+
+          {documents && (documents.tripsWithoutDocuments.length > 0 || documents.passportIssues.length > 0) && (
+            <Card className="overflow-hidden shadow-xs">
+              <h2 className="border-b border-line px-4 py-2.5 text-sm font-bold text-ink-900">Documents to sort</h2>
+              <ul className="divide-y divide-line">
+                {documents.tripsWithoutDocuments.map((t) => (
+                  <li key={`d-${t.id}`}>
+                    <Link to={`/admin/bookings/${t.id}`} className="flex items-center justify-between gap-3 px-4 py-2 text-sm hover:bg-plum-50/50">
+                      <span className="truncate">
+                        <span className="font-semibold">{t.refNo}</span> · {t.customerName}
+                      </span>
+                      <span className="shrink-0 text-xs text-ink-500">leaves {formatDate(t.travelFrom)} · <strong className="text-red-600">no documents</strong></span>
+                    </Link>
+                  </li>
+                ))}
+                {documents.passportIssues.map((p, i) => (
+                  <li key={`p-${p.bookingId}-${i}`}>
+                    <Link to={`/admin/bookings/${p.bookingId}`} className="flex items-center justify-between gap-3 px-4 py-2 text-sm hover:bg-plum-50/50">
+                      <span className="truncate">
+                        <span className="font-semibold">{p.refNo}</span> · {p.travelerName}
+                      </span>
+                      <span className="shrink-0 text-xs text-ink-500">{p.passportExpiry ? `passport expires ${formatDate(p.passportExpiry)}` : "no passport expiry on file"}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          {upcomingTrips.length > 0 && (
+            <Card className="overflow-hidden shadow-xs">
+              <h2 className="border-b border-line px-4 py-2.5 text-sm font-bold text-ink-900">Trips leaving in the next 14 days</h2>
+              <ul className="divide-y divide-line">
+                {upcomingTrips.slice(0, 8).map((t) => (
+                  <li key={t.id}>
+                    <Link to={`/admin/bookings/${t.id}`} className="flex items-center justify-between gap-3 px-4 py-2 text-sm hover:bg-plum-50/50">
+                      <span className="truncate">
+                        <span className="font-semibold">{t.refNo}</span> · {t.customerName}
+                      </span>
+                      <span className="shrink-0 text-xs text-ink-500">
+                        {formatDate(t.travelFrom)} · {t.documents} document{t.documents === 1 ? "" : "s"}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           {reports.length > 0 && (
             <Card className="p-4 shadow-xs">

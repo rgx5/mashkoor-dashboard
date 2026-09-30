@@ -57,7 +57,7 @@ export class PaymentLinksService {
 
   /** Staff create a link for (part of) a booking's balance. */
   async create(actor: RequestUser, input: PaymentLinkData): Promise<PaymentLinkRow> {
-    await this.assertBookingAccess(actor, input.bookingId, "update");
+    await this.assertBookingAccess(actor, input.bookingId, "collect");
     return this.toRow(await this.createLink(input.bookingId, input.amount, input.expiresInHours, input.note, actor.id, actor));
   }
 
@@ -92,7 +92,7 @@ export class PaymentLinksService {
   async cancel(actor: RequestUser, id: string): Promise<PaymentLinkRow> {
     const link = await this.prisma.paymentLink.findUnique({ where: { id } });
     if (!link) throw AppError.notFound("Payment link");
-    await this.assertBookingAccess(actor, link.bookingId, "update");
+    await this.assertBookingAccess(actor, link.bookingId, "collect");
     if (link.status !== "ACTIVE") throw AppError.conflict("Only an active link can be cancelled");
     const updated = await this.prisma.paymentLink.update({ where: { id }, data: { status: "CANCELLED" } });
     await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "paymentLink.cancelled", entityType: "PaymentLink", entityId: id });
@@ -103,7 +103,7 @@ export class PaymentLinksService {
   async sendToCustomer(actor: RequestUser, id: string): Promise<{ sent: boolean; reason?: string }> {
     const link = await this.prisma.paymentLink.findUnique({ where: { id }, include: { booking: { include: { customer: true } } } });
     if (!link) throw AppError.notFound("Payment link");
-    await this.assertBookingAccess(actor, link.bookingId, "update");
+    await this.assertBookingAccess(actor, link.bookingId, "collect");
     if (link.status !== "ACTIVE") throw AppError.conflict("This link is no longer active");
     const customer = link.booking.customer;
     if (!customer.email) return { sent: false, reason: "This customer has no email address on file" };
@@ -135,7 +135,7 @@ export class PaymentLinksService {
     return link;
   }
 
-  private async assertBookingAccess(actor: RequestUser, bookingId: string, action: "read" | "update") {
+  private async assertBookingAccess(actor: RequestUser, bookingId: string, action: "read" | "collect") {
     const booking = await this.prisma.booking.findUnique({ where: { id: bookingId } });
     if (!booking) throw AppError.notFound("Booking");
     if (!this.abilities.forUser(actor).can(action, subject("Booking", booking))) throw AppError.forbidden();
@@ -249,7 +249,7 @@ export class PaymentLinksService {
     await finish("PROCESSED");
 
     await this.payments.sendReceipt(payment.id);
-    await this.mail.sendToStaff(["OPS_MANAGER", "SUPER_ADMIN"], () =>
+    await this.mail.sendToStaff(["OPS_MANAGER", "SUPER_ADMIN", "ACCOUNTS"], () =>
       emails.onlinePaymentToStaff({ customerName: link.booking.customer.fullName, bookingRef: link.booking.refNo, amount: link.amount, receiptNo: payment.receiptNo, url: `${this.config.get("APP_URL")}/admin/bookings/${link.bookingId}` }),
     );
     return { status: "processed" };
