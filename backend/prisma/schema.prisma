@@ -74,6 +74,7 @@ model User {
   ownedBookings      Booking[]         @relation("BookingOwner")
   ownedItineraries   Itinerary[]       @relation("ItineraryOwner")
   managedItineraries Itinerary[]       @relation("ItineraryManager")
+  financeEntries     FinanceEntry[]    @relation("FinanceRecorder")
   tripUpdates        TripUpdate[]      @relation("TripUpdateAuthor")
   uploadedDocuments  BookingDocument[] @relation("DocumentUploader")
   createdContacts    Contact[]         @relation("ContactCreator")
@@ -791,13 +792,14 @@ model Booking {
   updatedAt           DateTime      @updatedAt
   createdById         String?       @db.Uuid
 
-  items        BookingItem[]
-  travelers    Traveler[]        @relation("BookingTravelers")
-  payments     Payment[]
-  paymentLinks PaymentLink[]
-  invoices     Invoice[]
-  updates      TripUpdate[]
-  documents    BookingDocument[]
+  items          BookingItem[]
+  travelers      Traveler[]        @relation("BookingTravelers")
+  payments       Payment[]
+  paymentLinks   PaymentLink[]
+  invoices       Invoice[]
+  financeEntries FinanceEntry[]
+  updates        TripUpdate[]
+  documents      BookingDocument[]
 
   @@index([status, ownerId])
   @@index([customerId])
@@ -1316,4 +1318,59 @@ model Contact {
   updatedAt       DateTime    @updatedAt
 
   @@index([type, name])
+}
+
+// ─── Accounts ────────────────────────────────────────────────────────────────
+
+enum FinanceDirection {
+  IN
+  OUT
+}
+
+enum FinanceCategory {
+  SUPPLIER_PAYMENT
+  SUPPLIER_REFUND
+  SALARY
+  RENT_UTILITIES
+  MARKETING
+  OFFICE
+  TRAVEL
+  TAXES_FEES
+  OTHER_EXPENSE
+  OTHER_INCOME
+}
+
+/// Money that moved outside the booking flow: what we pay suppliers, what the office spends, and the odd extra income.
+/// Customer collections and refunds live on Payment and partner top-ups on the wallet ledger; the ledger screen joins all
+/// three. Append-only: a mistake is cancelled with a reversal entry (the opposite direction, pointing back at it), never edited.
+model FinanceEntry {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  entryNo      String           @unique
+  direction    FinanceDirection
+  category     FinanceCategory
+  amount       Int
+  /// The day the money moved (not the day it was typed in).
+  entryDate    DateTime         @db.Date
+  method       PaymentMethod
+  /// Who was paid, or who paid us: a supplier, a landlord, an employee.
+  party        String?
+  bookingId    String?          @db.Uuid
+  booking      Booking?         @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  reference    String?
+  notes        String?
+  /// Set on the entry that cancels another one.
+  reversalOfId String?          @unique @db.Uuid
+  reversalOf   FinanceEntry?    @relation("FinanceReversal", fields: [reversalOfId], references: [id])
+  reversal     FinanceEntry?    @relation("FinanceReversal")
+  receiptKey   String?
+  receiptSha   String?
+  receiptName  String?
+  receiptMime  String?
+  recordedById String?          @db.Uuid
+  recordedBy   User?            @relation("FinanceRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime         @default(now())
+
+  @@index([entryDate])
+  @@index([bookingId])
+  @@index([category])
 }

@@ -12,6 +12,7 @@ import type {
   Destination,
   Enquiry,
   Faq,
+  FinanceEntry,
   FlightSeatBlock,
   Hotel,
   InboundEvent,
@@ -83,6 +84,7 @@ export type AppSubjects =
       Currency: Currency;
       Enquiry: Enquiry;
       Invoice: Invoice;
+      FinanceEntry: FinanceEntry;
     }>;
 
 export type AppAbility = PureAbility<[Action, AppSubjects], PrismaQuery>;
@@ -188,6 +190,8 @@ export class AbilityFactory {
         // Leads handed over for payment, and the invoices raised for them.
         can("read", "Lead", { accountantId: user.id });
         can(["read", "create", "update"], "Invoice");
+        // The accounts section: every rupee in and out, supplier payments and expenses. Entries are cancelled, never edited.
+        can(["read", "create", "update"], "FinanceEntry");
         can("read", "Itinerary");
         can("read", "InboundEvent");
         break;

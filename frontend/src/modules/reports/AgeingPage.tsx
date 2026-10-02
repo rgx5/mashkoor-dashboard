@@ -51,7 +51,7 @@ export function AgeingPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-2.5 whitespace-nowrap text-ink-500">{r.phone}</td>
-                    <td className="px-4 py-2.5 whitespace-nowrap">{formatDate(String(r.travelFrom))}</td>
+                    <td className="px-4 py-2.5 whitespace-nowrap">{formatDate(r.travelFrom == null ? null : String(r.travelFrom))}</td>
                     <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-red-600">{formatINR(Number(r.due))}</td>
                     <td className={`px-4 py-2.5 text-right tabular-nums ${Number(r.ageDays) > 90 ? "font-semibold text-red-600" : "text-ink-700"}`}>{r.ageDays}</td>
                   </tr>

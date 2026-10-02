@@ -11,10 +11,14 @@ const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 export const formatDate = (value: string | null | undefined) => {
   if (!value) return "—";
   const date = value.length === 10 ? new Date(`${value}T00:00:00+05:30`) : new Date(value);
-  return dateFmt.format(date);
+  // Anything that is not a real date (a stray "null", a bad value from an import) shows as a dash instead of crashing the page.
+  return Number.isNaN(date.getTime()) ? "—" : dateFmt.format(date);
 };
 
-export const formatDateTime = (value: string | null | undefined) => (value ? dateTimeFmt.format(new Date(value)) : "—");
+export const formatDateTime = (value: string | null | undefined) => {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? dateTimeFmt.format(date) : "—";
+};
 
 export const formatINR = (value: number | null | undefined) => (value == null ? "—" : inr.format(value));
 

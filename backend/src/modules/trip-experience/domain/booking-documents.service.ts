@@ -21,7 +21,7 @@ const ORPHAN_SWEEP_EVERY_MS = 6 * 3600_000;
 const ORPHAN_MIN_AGE_MS = 24 * 3600_000;
 
 /** The first bytes of a real PDF / JPEG / PNG / WebP. The declared type alone is never trusted. */
-function sniff(buf: Buffer): (typeof ALLOWED_DOCUMENT_TYPES)[number] | null {
+export function sniff(buf: Buffer): (typeof ALLOWED_DOCUMENT_TYPES)[number] | null {
   if (buf.length < 12) return null;
   if (buf.subarray(0, 5).toString("latin1") === "%PDF-") return "application/pdf";
   if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";

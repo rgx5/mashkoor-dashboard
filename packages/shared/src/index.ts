@@ -10,6 +10,7 @@ export * from "./dashboard";
 export * from "./enquiries";
 export * from "./errors";
 export * from "./features";
+export * from "./finance";
 export * from "./inventory";
 export * from "./invoices";
 export * from "./experience";
