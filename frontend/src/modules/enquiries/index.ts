@@ -8,7 +8,7 @@ export { ContactedDialog, ConvertDialog, NewEnquiryDialog } from "./admin/Enquir
 export const enquiriesModule: AppModule = {
   id: "enquiries",
   admin: {
-    nav: [{ label: "Enquiries", to: "enquiries", icon: Inbox, can: ["read", "Enquiry"], group: "CRM" }],
+    nav: [{ label: "Enquiries", to: "enquiries", icon: Inbox, can: ["read", "Enquiry"], feature: "enquiries", group: "CRM" }],
     routes: [
       { path: "enquiries", lazy: async () => ({ Component: (await import("./admin/EnquiriesPage")).EnquiriesPage }) },
       { path: "home-preview", lazy: async () => ({ Component: (await import("./admin/HomePreviewPage")).HomePreviewPage }) },

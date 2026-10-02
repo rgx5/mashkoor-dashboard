@@ -7,7 +7,7 @@ export { useDuplicateItinerary, useItineraries } from "./api";
 export const itinerariesModule: AppModule = {
   id: "itineraries",
   admin: {
-    nav: [{ label: "Quotations", to: "itineraries", icon: CalendarRange, can: ["read", "Itinerary"], group: "CRM" }],
+    nav: [{ label: "Quotations", to: "itineraries", icon: CalendarRange, can: ["read", "Itinerary"], feature: "quotations", group: "CRM" }],
     routes: [
       { path: "itineraries", lazy: async () => ({ Component: (await import("./admin/ItinerariesPage")).ItinerariesPage }) },
       { path: "itineraries/new", lazy: async () => ({ Component: (await import("./admin/ItineraryEditorPage")).ItineraryEditorPage }) },

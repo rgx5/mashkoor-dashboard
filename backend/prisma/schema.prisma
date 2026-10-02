@@ -75,6 +75,8 @@ model User {
   ownedItineraries   Itinerary[]       @relation("ItineraryOwner")
   managedItineraries Itinerary[]       @relation("ItineraryManager")
   financeEntries     FinanceEntry[]    @relation("FinanceRecorder")
+  /// The dashboard areas a super admin has switched on for this staff member. Empty = dashboard home only.
+  featureAccess      String[]          @default([])
   tripUpdates        TripUpdate[]      @relation("TripUpdateAuthor")
   uploadedDocuments  BookingDocument[] @relation("DocumentUploader")
   createdContacts    Contact[]         @relation("ContactCreator")

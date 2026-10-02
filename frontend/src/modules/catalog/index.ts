@@ -8,10 +8,10 @@ export const catalogModule: AppModule = {
   id: "catalog",
   admin: {
     nav: [
-      { label: "Destinations", to: "destinations", icon: Globe2, can: ["read", "Destination"], group: "Catalog" },
-      { label: "Packages", to: "packages", icon: Luggage, can: ["read", "Package"], group: "Catalog" },
-      { label: "Testimonials", to: "testimonials", icon: MessageSquareQuote, can: ["read", "Testimonial"], group: "Catalog" },
-      { label: "FAQs", to: "faqs", icon: HelpCircle, can: ["read", "Faq"], group: "Catalog" },
+      { label: "Destinations", to: "destinations", icon: Globe2, can: ["read", "Destination"], feature: "catalog", group: "Catalog" },
+      { label: "Packages", to: "packages", icon: Luggage, can: ["read", "Package"], feature: "catalog", group: "Catalog" },
+      { label: "Testimonials", to: "testimonials", icon: MessageSquareQuote, can: ["read", "Testimonial"], feature: "catalog", group: "Catalog" },
+      { label: "FAQs", to: "faqs", icon: HelpCircle, can: ["read", "Faq"], feature: "catalog", group: "Catalog" },
     ],
     routes: [
       { path: "destinations", lazy: async () => ({ Component: (await import("./admin/DestinationsPage")).DestinationsPage }) },

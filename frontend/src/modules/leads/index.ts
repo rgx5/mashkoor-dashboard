@@ -8,7 +8,7 @@ export { StageChangeDialog, type PendingStageChange } from "./StageChangeDialog"
 export const leadsModule: AppModule = {
   id: "leads",
   admin: {
-    nav: [{ label: "Leads", to: "leads", icon: Target, can: ["read", "Lead"], group: "CRM" }],
+    nav: [{ label: "Leads", to: "leads", icon: Target, can: ["read", "Lead"], feature: "leads", group: "CRM" }],
     routes: [
       { path: "leads", lazy: async () => ({ Component: (await import("./admin/LeadsPage")).LeadsPage }) },
       { path: "leads/:id", lazy: async () => ({ Component: (await import("./admin/LeadDetailPage")).LeadDetailPage }) },

@@ -6,10 +6,10 @@ export const administrationModule: AppModule = {
   id: "administration",
   admin: {
     nav: [
-      { label: "Inbound events", to: "inbound-events", icon: Inbox, can: ["read", "InboundEvent"], group: "Administration" },
-      { label: "Emails", to: "notifications", icon: Mail, can: ["read", "NotificationLog"], group: "Administration" },
-      { label: "Audit log", to: "audit-log", icon: ScrollText, can: ["read", "AuditLog"], group: "Administration" },
-      { label: "Import data", to: "import", icon: FileUp, can: ["create", "Customer"], group: "Administration" },
+      { label: "Inbound events", to: "inbound-events", icon: Inbox, can: ["read", "InboundEvent"], feature: "administration", group: "Administration" },
+      { label: "Emails", to: "notifications", icon: Mail, can: ["read", "NotificationLog"], feature: "administration", group: "Administration" },
+      { label: "Audit log", to: "audit-log", icon: ScrollText, can: ["read", "AuditLog"], feature: "administration", group: "Administration" },
+      { label: "Import data", to: "import", icon: FileUp, can: ["create", "Customer"], feature: "administration", group: "Administration" },
     ],
     routes: [
       { path: "inbound-events", lazy: async () => ({ Component: (await import("./admin/InboundEventsPage")).InboundEventsPage }) },

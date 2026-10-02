@@ -1,4 +1,4 @@
-import type { CreateStaffUserInput, Paginated, Role, SessionUser, UpdateStaffUserInput, UserStatus } from "@mashkoor/shared";
+import type { CreateStaffUserInput, Paginated, Role, SessionUser, StaffAccessMatrix, StaffFeature, UpdateStaffUserInput, UserStatus } from "@mashkoor/shared";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/core/api/client";
 
@@ -43,3 +43,25 @@ export const useInviteStaff = () => useUserMutation((input: CreateStaffUserInput
 export const useUpdateStaff = () => useUserMutation(({ id, ...input }: UpdateStaffUserInput & { id: string }) => admin.patch<SessionUser>(`/users/${id}`, input));
 export const useSetStaffStatus = () => useUserMutation(({ id, enable }: { id: string; enable: boolean }) => admin.post<SessionUser>(`/users/${id}/${enable ? "enable" : "disable"}`));
 export const useResendInvite = () => useUserMutation((id: string) => admin.post<{ message: string }>(`/users/${id}/resend-invite`));
+
+/** Who can see which dashboard areas. Super admins only. */
+export const useStaffAccess = () => useQuery({ queryKey: [...keys.all, "access"], queryFn: () => admin.get<StaffAccessMatrix>("/users/access") });
+
+/** Switches areas on or off for one person. The matrix updates at once and rolls back if the server says no. */
+export function useSetStaffAccess() {
+  const client = useQueryClient();
+  const key = [...keys.all, "access"];
+  return useMutation({
+    mutationFn: ({ id, features }: { id: string; features: StaffFeature[] }) => admin.put<SessionUser>(`/users/${id}/access`, { features }),
+    onMutate: async ({ id, features }) => {
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<StaffAccessMatrix>(key);
+      if (previous) client.setQueryData<StaffAccessMatrix>(key, { ...previous, staff: previous.staff.map((s) => (s.id === id ? { ...s, features } : s)) });
+      return { previous };
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previous) client.setQueryData(key, context.previous);
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: key }),
+  });
+}

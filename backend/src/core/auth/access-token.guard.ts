@@ -61,6 +61,7 @@ export class AccessTokenGuard implements CanActivate {
       role: claims.role,
       partnerId: claims.partnerId ?? null,
       customerId: claims.customerId ?? null,
+      features: state.features,
     };
     return true;
   }

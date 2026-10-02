@@ -6,6 +6,7 @@ export interface AuthState {
   role: string;
   partnerId: string | null;
   customerId: string | null;
+  features: string[];
 }
 
 const TTL_MS = 10_000;
@@ -29,7 +30,7 @@ export class AuthStateService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { status: true, role: true, partnerId: true, customerId: true, type: true, partner: { select: { status: true } } },
+      select: { status: true, role: true, partnerId: true, customerId: true, featureAccess: true, type: true, partner: { select: { status: true } } },
     });
     const partnerBlocked = user?.type === "PARTNER" && user.partner?.status !== "APPROVED";
     // A customer whose record was deleted (or merged away) must not keep a portal session on a dead record.
@@ -43,6 +44,7 @@ export class AuthStateService {
       role: user?.role ?? "",
       partnerId: user?.partnerId ?? null,
       customerId: user?.customerId ?? null,
+      features: user?.featureAccess ?? [],
     };
     if (this.cache.size >= MAX_ENTRIES) this.cache.clear();
     this.cache.set(userId, { at: Date.now(), state });

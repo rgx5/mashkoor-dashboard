@@ -36,7 +36,7 @@ export const otpVerifySchema = otpRequestSchema.extend({
 });
 export type OtpVerifyInput = z.infer<typeof otpVerifySchema>;
 
-export const createStaffUserSchema = z.object({
+const staffUserFields = z.object({
   name: z.string().trim().min(2, "Enter a name").max(120),
   email: z.email("Enter a valid email address").transform((v) => v.toLowerCase().trim()),
   phone: z
@@ -47,9 +47,18 @@ export const createStaffUserSchema = z.object({
     .transform((v) => v || undefined),
   role: z.enum(STAFF_ROLES),
 });
+
+/** A password is optional: with one, the account is ready to sign in at once; without, they get an email to set their own. */
+export const createStaffUserSchema = staffUserFields.extend({
+  password: z
+    .string()
+    .optional()
+    .transform((v) => v || undefined)
+    .pipe(passwordSchema.optional()),
+});
 export type CreateStaffUserInput = z.infer<typeof createStaffUserSchema>;
 
-export const updateStaffUserSchema = patchOf(createStaffUserSchema.omit({ email: true }));
+export const updateStaffUserSchema = patchOf(staffUserFields.omit({ email: true }));
 export type UpdateStaffUserInput = z.infer<typeof updateStaffUserSchema>;
 
 /** Claims inside an access token. `aud` is the portal the token is valid for. */
@@ -80,6 +89,8 @@ export interface SessionUser {
   status: UserStatus;
   partnerId: string | null;
   customerId: string | null;
+  /** The dashboard areas switched on for this staff member (see STAFF_FEATURES). Super admins ignore it. */
+  features: string[];
 }
 
 export interface AuthSession {

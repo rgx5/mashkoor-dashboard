@@ -6,9 +6,9 @@ export const financeModule: AppModule = {
   id: "finance",
   admin: {
     nav: [
-      { label: "Overview", to: "accounts", icon: Landmark, can: ["read", "FinanceEntry"], group: "Accounts" },
-      { label: "Ledger", to: "accounts/ledger", icon: BookOpenText, can: ["read", "FinanceEntry"], group: "Accounts" },
-      { label: "Booking profit", to: "accounts/bookings", icon: Scale, can: ["read", "FinanceEntry"], group: "Accounts" },
+      { label: "Overview", to: "accounts", icon: Landmark, can: ["read", "FinanceEntry"], feature: "accounts", group: "Accounts" },
+      { label: "Ledger", to: "accounts/ledger", icon: BookOpenText, can: ["read", "FinanceEntry"], feature: "accounts", group: "Accounts" },
+      { label: "Booking profit", to: "accounts/bookings", icon: Scale, can: ["read", "FinanceEntry"], feature: "accounts", group: "Accounts" },
     ],
     routes: [
       { path: "accounts", lazy: async () => ({ Component: (await import("./admin/FinanceOverviewPage")).FinanceOverviewPage }) },

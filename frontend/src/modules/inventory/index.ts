@@ -8,8 +8,8 @@ export const inventoryModule: AppModule = {
   id: "inventory",
   admin: {
     nav: [
-      { label: "Hotels", to: "hotels", icon: Building2, can: ["read", "Hotel"], group: "Inventory" },
-      { label: "Flights", to: "flight-inventory", icon: Plane, can: ["read", "FlightSeatBlock"], group: "Inventory" },
+      { label: "Hotels", to: "hotels", icon: Building2, can: ["read", "Hotel"], feature: "inventory", group: "Inventory" },
+      { label: "Flights", to: "flight-inventory", icon: Plane, can: ["read", "FlightSeatBlock"], feature: "inventory", group: "Inventory" },
     ],
     routes: [
       { path: "hotels", lazy: async () => ({ Component: (await import("./admin/HotelsPage")).HotelsPage }) },

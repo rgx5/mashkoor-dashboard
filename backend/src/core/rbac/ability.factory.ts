@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { AbilityBuilder, type PureAbility } from "@casl/ability";
 import { createPrismaAbility, type PrismaQuery, type Subjects } from "@casl/prisma";
-import type { AbilityRule } from "@mashkoor/shared";
+import type { AbilityRule, Role, StaffFeature } from "@mashkoor/shared";
 import type {
   Activity,
   AuditLog,
@@ -32,6 +32,7 @@ import type {
   User,
 } from "@prisma/client";
 import type { RequestUser } from "../auth/request-user";
+import { featuresUsedBy, gateRules, type GateRule } from "./feature-gate";
 
 export type Action =
   | "manage"
@@ -89,6 +90,9 @@ export type AppSubjects =
 
 export type AppAbility = PureAbility<[Action, AppSubjects], PrismaQuery>;
 
+/** Staff other than super admins are limited to the dashboard areas switched on for them. */
+const isFeatureGated = (role: Role, portal: string) => portal === "admin" && role !== "SUPER_ADMIN" && role !== "PARTNER_ADMIN" && role !== "PARTNER_USER" && role !== "CUSTOMER";
+
 /**
  * Permission rules per role (PROJECT_PLAN §3.2). Each business module adds its subjects here as it is built.
  * The same rules are sent to the frontend via `/auth/:portal/me` so the UI can hide what users can't do.
@@ -97,7 +101,20 @@ export type AppAbility = PureAbility<[Action, AppSubjects], PrismaQuery>;
 @Injectable()
 export class AbilityFactory {
   forUser(user: RequestUser): AppAbility {
-    const { can, cannot, build } = new AbilityBuilder<AppAbility>(createPrismaAbility);
+    const raw = this.roleRules(user);
+    // Staff only get the areas a super admin has switched on for them; super admins, agencies and customers are untouched.
+    const rules = isFeatureGated(user.role, user.portal) ? gateRules(raw as unknown as GateRule[], user.id, user.features) : raw;
+    return createPrismaAbility<AppAbility>(rules as never);
+  }
+
+  /** The dashboard areas a role could use at all, whatever has been switched on — so the access matrix can grey out the rest. */
+  featuresAvailableFor(role: Role, userId: string): StaffFeature[] {
+    return featuresUsedBy(this.roleRules({ id: userId, portal: "admin", role, partnerId: null, customerId: null, features: [] }) as unknown as GateRule[], userId);
+  }
+
+  private roleRules(user: RequestUser) {
+    const builder = new AbilityBuilder<AppAbility>(createPrismaAbility);
+    const { can, cannot } = builder;
 
     switch (user.role) {
       case "SUPER_ADMIN":
@@ -271,7 +288,7 @@ export class AbilityFactory {
         break;
     }
 
-    return build();
+    return builder.rules;
   }
 
   /** Serialisable rules for the frontend. */

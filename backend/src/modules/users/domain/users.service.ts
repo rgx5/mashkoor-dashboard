@@ -1,10 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import { accessibleBy } from "@casl/prisma";
 import { subject } from "@casl/ability";
-import type { CreateStaffUserInput, ListQuery, Paginated, Role, SessionUser, UpdateStaffUserInput, UserStatus } from "@mashkoor/shared";
+import { isStaffFeature, STAFF_FEATURE_INFO, STAFF_FEATURES, STAFF_ROLES, type CreateStaffUserInput, type ListQuery, type Paginated, type Role, type SessionUser, type StaffAccessData, type StaffAccessMatrix, type UpdateStaffUserInput, type UserStatus } from "@mashkoor/shared";
 import type { Prisma } from "@prisma/client";
 import { AuditService } from "../../../core/audit/audit.service";
 import { AuthService, toSessionUser } from "../../../core/auth/auth.service";
+import { AuthStateService } from "../../../core/auth/auth-state.service";
+import { hashPassword } from "../../../core/auth/crypto";
 import type { RequestUser } from "../../../core/auth/request-user";
 import { TokenService } from "../../../core/auth/token.service";
 import { AppError } from "../../../core/http/app-error";
@@ -25,6 +27,7 @@ export class UsersService {
     private readonly auth: AuthService,
     private readonly tokens: TokenService,
     private readonly audit: AuditService,
+    private readonly authState: AuthStateService,
   ) {}
 
   async listStaff(actor: RequestUser, query: StaffListQuery): Promise<Paginated<StaffUserRow>> {
@@ -62,6 +65,35 @@ export class UsersService {
     });
   }
 
+  /** Every staff member with the dashboard areas switched on for them, and the areas their role could use at all. */
+  async accessMatrix(): Promise<StaffAccessMatrix> {
+    const staff = await this.prisma.user.findMany({ where: { type: "STAFF", status: { not: "DISABLED" } }, orderBy: [{ name: "asc" }] });
+    return {
+      features: STAFF_FEATURES.map((f) => STAFF_FEATURE_INFO[f]),
+      staff: staff.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        status: u.status,
+        fullAccess: u.role === "SUPER_ADMIN",
+        features: u.featureAccess.filter(isStaffFeature),
+        available: u.role === "SUPER_ADMIN" ? [...STAFF_FEATURES] : this.abilities.featuresAvailableFor(u.role, u.id),
+      })),
+    };
+  }
+
+  async setAccess(actor: RequestUser, id: string, input: StaffAccessData) {
+    const before = await this.findAccessible(actor, id, "update");
+    if (before.role === "SUPER_ADMIN") throw AppError.conflict("Super admins always have full access");
+    if (!(STAFF_ROLES as readonly string[]).includes(before.role)) throw AppError.conflict("Only staff have dashboard areas");
+    const user = await this.prisma.user.update({ where: { id }, data: { featureAccess: input.features } });
+    await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "user.access_changed", entityType: "User", entityId: id, before: { features: before.featureAccess }, after: { features: user.featureAccess } });
+    // Effective on their very next request; their screens pick it up the next time the app loads.
+    this.authState.invalidate(id);
+    return toSessionUser(user);
+  }
+
   async getStaff(actor: RequestUser, id: string): Promise<StaffUserRow> {
     const user = await this.findAccessible(actor, id, "read");
     return { ...toSessionUser(user), lastLoginAt: user.lastLoginAt, createdAt: user.createdAt };
@@ -71,11 +103,21 @@ export class UsersService {
     const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (existing) throw AppError.conflict("A user with this email already exists");
 
+    // With a password the admin has chosen, the account works straight away and no email is sent. Hand the password to the person yourself.
     const user = await this.prisma.user.create({
-      data: { type: "STAFF", role: input.role, name: input.name, email: input.email, phone: input.phone, status: "INVITED", createdById: actor.id },
+      data: {
+        type: "STAFF",
+        role: input.role,
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        status: input.password ? "ACTIVE" : "INVITED",
+        passwordHash: input.password ? await hashPassword(input.password) : undefined,
+        createdById: actor.id,
+      },
     });
-    await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "user.created", entityType: "User", entityId: user.id, after: toSessionUser(user) });
-    await this.auth.sendInvite(user, actor.id);
+    await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "user.created", entityType: "User", entityId: user.id, after: { ...toSessionUser(user), passwordSetByAdmin: Boolean(input.password) } });
+    if (!input.password) await this.auth.sendInvite(user, actor.id);
     return toSessionUser(user);
   }
 

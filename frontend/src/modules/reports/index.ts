@@ -1,10 +1,14 @@
-import { BookOpen, Building, CalendarRange, Clock, Filter, PieChart, TrendingUp, Trophy } from "lucide-react";
+// import { BookOpen, Building, CalendarRange, Clock, Filter, PieChart, TrendingUp, Trophy } from "lucide-react";
 import type { AppModule } from "@/core/modules/types";
 
 /** M14 · Reports — eight reports rendered by one screen. Each one enforces its own permissions on the API. */
 export const reportsModule: AppModule = {
   id: "reports",
   admin: {
+    // Hidden from the sidebar for now while role-based dashboards are worked out. The pages and their routes still exist;
+    // restore these entries (and give them a `feature`) to bring the Reports group back.
+    nav: [],
+    /*
     nav: [
       { label: "Sales register", to: "reports/sales", icon: TrendingUp, can: ["collect", "Booking"], group: "Reports" },
       { label: "Receivables ageing", to: "reports/ageing", icon: Clock, can: ["collect", "Booking"], group: "Reports" },
@@ -15,6 +19,7 @@ export const reportsModule: AppModule = {
       { label: "Partner activity", to: "reports/partner-activity", icon: Building, can: ["read", "Partner"], group: "Reports" },
       { label: "Upcoming travel", to: "reports/upcoming-travel", icon: CalendarRange, can: ["read", "Booking"], group: "Reports" },
     ],
+    */
     routes: [
       { path: "reports/sales", lazy: async () => ({ Component: (await import("./SalesRegisterPage")).SalesRegisterPage }) },
       { path: "reports/ageing", lazy: async () => ({ Component: (await import("./AgeingPage")).AgeingPage }) },

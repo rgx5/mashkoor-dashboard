@@ -1,6 +1,7 @@
 import { ChevronDown, LayoutDashboard, ListTodo, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
+import { useSession } from "@/core/auth/session-store";
 import { useAbility } from "@/core/rbac/ability";
 import { BrandName } from "@/core/ui/BrandName";
 import { cn } from "@/core/ui/cn";
@@ -48,7 +49,10 @@ function AdminShell() {
   const { pathname } = useLocation();
   const ability = useAbility("admin");
   const { data: summary } = useAdminDashboard();
-  const items = adminNav.filter((item) => !item.can || ability.can(item.can[0], item.can[1]));
+  const { user } = useSession("admin");
+  // Super admins see everything; everyone else only the areas switched on for them (the dashboard home is always there).
+  const hasFeature = (feature?: string) => !feature || user?.role === "SUPER_ADMIN" || Boolean(user?.features?.includes(feature));
+  const items = adminNav.filter((item) => hasFeature(item.feature) && (!item.can || ability.can(item.can[0], item.can[1])));
   const groups = [...new Set(items.map((i) => i.group ?? "Main"))];
   const dueTasks = summary ? summary.tasks.dueToday + summary.tasks.overdue : 0;
 
@@ -205,10 +209,12 @@ function AdminShell() {
         <div className={cn("flex items-center gap-2", !pageMeta && "ml-auto")}>
           <GlobalSearch />
           <QuickCreate />
+          {hasFeature("tasks") && (
           <Link to="/admin/tasks" className="relative rounded-lg p-2 text-ink-700 hover:bg-surface" aria-label={dueTasks ? `${dueTasks} tasks due` : "Tasks"}>
             <ListTodo className="h-5 w-5" aria-hidden />
             {dueTasks > 0 && <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">{dueTasks}</span>}
           </Link>
+          )}
           <UserMenu portal="admin" />
         </div>
       </header>

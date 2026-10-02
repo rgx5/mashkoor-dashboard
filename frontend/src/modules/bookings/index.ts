@@ -8,7 +8,7 @@ export { NewBookingDialog } from "./admin/NewBookingDialog";
 export const bookingsModule: AppModule = {
   id: "bookings",
   admin: {
-    nav: [{ label: "Bookings", to: "bookings", icon: Luggage, can: ["read", "Booking"], group: "Operations" }],
+    nav: [{ label: "Bookings", to: "bookings", icon: Luggage, can: ["read", "Booking"], feature: "bookings", group: "Operations" }],
     routes: [
       { path: "bookings", lazy: async () => ({ Component: (await import("./admin/BookingsPage")).BookingsPage }) },
       { path: "bookings/:id", lazy: async () => ({ Component: (await import("./admin/BookingDetailPage")).BookingDetailPage }) },

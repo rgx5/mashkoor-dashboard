@@ -1,4 +1,4 @@
-import type { Portal } from "@mashkoor/shared";
+import type { Portal, StaffFeature } from "@mashkoor/shared";
 import type { LucideIcon } from "lucide-react";
 import type { RouteObject } from "react-router";
 
@@ -10,6 +10,8 @@ export interface NavItem {
   /** Hide the item unless the user `can(action, subject)`. */
   can?: [action: string, subject: string];
   group?: string;
+  /** The dashboard area that has to be switched on for this staff member to see the item (super admins see everything). */
+  feature?: StaffFeature;
 }
 
 export interface PortalSlice {

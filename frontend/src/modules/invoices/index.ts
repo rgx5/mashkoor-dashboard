@@ -7,7 +7,7 @@ export { useCreateInvoice } from "./api";
 export const invoicesModule: AppModule = {
   id: "invoices",
   admin: {
-    nav: [{ label: "Invoices", to: "invoices", icon: ReceiptText, can: ["read", "Invoice"], group: "Operations" }],
+    nav: [{ label: "Invoices", to: "invoices", icon: ReceiptText, can: ["read", "Invoice"], feature: "invoices", group: "Operations" }],
     routes: [
       { path: "invoices", lazy: async () => ({ Component: (await import("./admin/InvoicesPage")).InvoicesPage }) },
       { path: "invoices/:id", lazy: async () => ({ Component: (await import("./admin/InvoiceDetailPage")).InvoiceDetailPage }) },

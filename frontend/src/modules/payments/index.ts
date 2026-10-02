@@ -8,7 +8,7 @@ export { useRejectPayment, useVerifyPayment } from "./api";
 export const paymentsModule: AppModule = {
   id: "payments",
   admin: {
-    nav: [{ label: "Payments", to: "payments", icon: CreditCard, can: ["collect", "Booking"], group: "Operations" }],
+    nav: [{ label: "Payments", to: "payments", icon: CreditCard, can: ["collect", "Booking"], feature: "payments", group: "Operations" }],
     routes: [{ path: "payments", lazy: async () => ({ Component: (await import("./admin/PaymentsPage")).PaymentsPage }) }],
   },
 };

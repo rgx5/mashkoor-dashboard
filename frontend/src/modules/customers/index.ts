@@ -8,7 +8,7 @@ export { lookupCustomers, useCustomer, useCustomers, type DuplicateMatch } from 
 export const customersModule: AppModule = {
   id: "customers",
   admin: {
-    nav: [{ label: "Customers", to: "customers", icon: Users, can: ["read", "Customer"], group: "CRM" }],
+    nav: [{ label: "Customers", to: "customers", icon: Users, can: ["read", "Customer"], feature: "customers", group: "CRM" }],
     routes: [
       { path: "customers", lazy: async () => ({ Component: (await import("./admin/CustomersPage")).CustomersPage }) },
       { path: "customers/:id", lazy: async () => ({ Component: (await import("./admin/CustomerDetailPage")).CustomerDetailPage }) },

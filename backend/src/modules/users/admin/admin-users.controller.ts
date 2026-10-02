@@ -1,11 +1,13 @@
-import { Body, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from "@nestjs/common";
+import { Body, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from "@nestjs/common";
 import {
   createStaffUserSchema,
   listQuerySchema,
+  staffAccessSchema,
   STAFF_ROLES,
   updateStaffUserSchema,
   USER_STATUSES,
   type CreateStaffUserInput,
+  type StaffAccessData,
   type UpdateStaffUserInput,
 } from "@mashkoor/shared";
 import { z } from "zod";
@@ -31,11 +33,23 @@ export class AdminUsersController {
     return this.users.listStaff(actor, query);
   }
 
-  /** Active staff for owner / assignee pickers. Anyone who works leads can see the list of names. */
+  /** Active staff for owner / assignee pickers. Any signed-in staff member can see the list of names. */
   @Get("options")
-  @CheckAbility("read", "Lead")
   options() {
     return this.users.staffOptions();
+  }
+
+  /** The access matrix: who can see which dashboard areas. Super admins only. */
+  @Get("access")
+  @CheckAbility("update", "User")
+  access() {
+    return this.users.accessMatrix();
+  }
+
+  @Put(":id/access")
+  @CheckAbility("update", "User")
+  setAccess(@CurrentUser() actor: RequestUser, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(staffAccessSchema)) body: StaffAccessData) {
+    return this.users.setAccess(actor, id, body);
   }
 
   @Get(":id")

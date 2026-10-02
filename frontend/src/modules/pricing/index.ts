@@ -5,7 +5,7 @@ import type { AppModule } from "@/core/modules/types";
 export const pricingModule: AppModule = {
   id: "pricing",
   admin: {
-    nav: [{ label: "Pricing rules", to: "pricing-rules", icon: Tags, can: ["read", "PricingRule"], group: "Inventory" }],
+    nav: [{ label: "Pricing rules", to: "pricing-rules", icon: Tags, can: ["read", "PricingRule"], feature: "pricing", group: "Inventory" }],
     routes: [{ path: "pricing-rules", lazy: async () => ({ Component: (await import("./admin/PricingRulesPage")).PricingRulesPage }) }],
   },
 };

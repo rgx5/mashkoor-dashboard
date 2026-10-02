@@ -48,6 +48,7 @@ export const toSessionUser = (u: User): SessionUser => ({
   status: u.status,
   partnerId: u.partnerId,
   customerId: u.customerId,
+  features: u.featureAccess,
 });
 
 export type IssuedSession = AuthSession & { refreshToken: string };

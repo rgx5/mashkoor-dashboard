@@ -8,7 +8,7 @@ export { TaskDialog } from "./TaskDialog";
 export const tasksModule: AppModule = {
   id: "tasks",
   admin: {
-    nav: [{ label: "Tasks", to: "tasks", icon: ListTodo, can: ["read", "Task"], group: "CRM" }],
+    nav: [{ label: "Tasks", to: "tasks", icon: ListTodo, can: ["read", "Task"], feature: "tasks", group: "CRM" }],
     routes: [{ path: "tasks", lazy: async () => ({ Component: (await import("./admin/TasksPage")).TasksPage }) }],
   },
 };

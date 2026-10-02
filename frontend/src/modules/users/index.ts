@@ -1,4 +1,4 @@
-import { UserCog } from "lucide-react";
+import { ShieldCheck, UserCog } from "lucide-react";
 import type { AppModule } from "@/core/modules/types";
 
 export { useStaffOptions, type StaffOption } from "./api";
@@ -8,7 +8,13 @@ export { StaffSelect } from "./StaffSelect";
 export const usersModule: AppModule = {
   id: "users",
   admin: {
-    nav: [{ label: "Staff users", to: "users", icon: UserCog, can: ["read", "User"], group: "Administration" }],
-    routes: [{ path: "users", lazy: async () => ({ Component: (await import("./admin/UsersPage")).UsersPage }) }],
+    nav: [
+      { label: "Staff users", to: "users", icon: UserCog, can: ["read", "User"], feature: "users", group: "Administration" },
+      { label: "Feature access", to: "users/access", icon: ShieldCheck, can: ["update", "User"], feature: "users", group: "Administration" },
+    ],
+    routes: [
+      { path: "users", lazy: async () => ({ Component: (await import("./admin/UsersPage")).UsersPage }) },
+      { path: "users/access", lazy: async () => ({ Component: (await import("./admin/FeatureAccessPage")).FeatureAccessPage }) },
+    ],
   },
 };

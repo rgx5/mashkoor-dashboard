@@ -5,7 +5,7 @@ import type { AppModule } from "@/core/modules/types";
 export const companyModule: AppModule = {
   id: "company",
   admin: {
-    nav: [{ label: "Company profile", to: "company-profile", icon: Building, can: ["update", "Setting"], group: "Administration" }],
+    nav: [{ label: "Company profile", to: "company-profile", icon: Building, can: ["update", "Setting"], feature: "company", group: "Administration" }],
     routes: [{ path: "company-profile", lazy: async () => ({ Component: (await import("./admin/CompanyProfilePage")).CompanyProfilePage }) }],
   },
 };

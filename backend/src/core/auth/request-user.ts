@@ -7,4 +7,6 @@ export interface RequestUser {
   role: Role;
   partnerId: string | null;
   customerId: string | null;
+  /** Dashboard areas switched on for this staff member (read from the database with the rest of their state). */
+  features: string[];
 }

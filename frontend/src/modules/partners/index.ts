@@ -5,7 +5,7 @@ import type { AppModule } from "@/core/modules/types";
 export const partnersModule: AppModule = {
   id: "partners",
   admin: {
-    nav: [{ label: "Partners", to: "partners", icon: Building, can: ["read", "Partner"], group: "Partners" }],
+    nav: [{ label: "Partners", to: "partners", icon: Building, can: ["read", "Partner"], feature: "partners", group: "Partners" }],
     routes: [
       { path: "partners", lazy: async () => ({ Component: (await import("./admin/PartnersPage")).PartnersPage }) },
       { path: "partners/:id", lazy: async () => ({ Component: (await import("./admin/PartnerDetailPage")).PartnerDetailPage }) },

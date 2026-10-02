@@ -1,3 +1,4 @@
+export * from "./access";
 export * from "./admin-tools";
 export * from "./auth";
 export * from "./bookings";

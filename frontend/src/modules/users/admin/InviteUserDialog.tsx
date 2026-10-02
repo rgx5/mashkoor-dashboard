@@ -12,7 +12,7 @@ import { useInviteStaff } from "../api";
 
 export function InviteUserDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
-    <Dialog open={open} onClose={onClose} title="Invite staff member" description="They'll receive an email to set their password.">
+    <Dialog open={open} onClose={onClose} title="Add staff member" description="Set a password for them now, or leave it blank and they'll get an email to set their own.">
       <InviteForm onDone={onClose} />
     </Dialog>
   );
@@ -30,7 +30,7 @@ function InviteForm({ onDone }: { onDone: () => void }) {
     setFormError(null);
     try {
       await invite.mutateAsync(values);
-      toast.success(`Invitation sent to ${values.email}`);
+      toast.success(values.password ? `${values.name} can sign in now` : `Invitation sent to ${values.email}`);
       onDone();
     } catch (error) {
       if (error instanceof ApiError) {
@@ -53,13 +53,21 @@ function InviteForm({ onDone }: { onDone: () => void }) {
           </option>
         ))}
       </SelectField>
+      <TextField
+        label="Password"
+        type="text"
+        autoComplete="off"
+        hint="Optional. At least 10 characters with a letter and a number. Tell them the password yourself — no email is sent when you set one."
+        error={formState.errors.password?.message}
+        {...register("password")}
+      />
       <p className="-mt-2 rounded-lg bg-plum-50 px-3 py-2 text-xs text-plum-800">{ROLE_DESCRIPTIONS[watch("role") ?? "SALES_AGENT"]}</p>
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="secondary" onClick={onDone}>
           Cancel
         </Button>
         <Button type="submit" loading={formState.isSubmitting}>
-          Send invitation
+          {watch("password") ? "Create user" : "Send invitation"}
         </Button>
       </div>
     </form>
