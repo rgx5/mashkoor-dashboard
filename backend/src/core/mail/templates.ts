@@ -48,7 +48,7 @@ export const emails = {
       heading: "Your trips, all in one place",
       paragraphs: [
         `Assalamu Alaikum ${firstName(p.customerName)},`,
-        "You can now follow your trips online: see your itinerary, pay any balance, download your tickets, visa and vouchers, and read updates from our team.",
+        "You can now follow your trips online: see your quotations, pay any balance, download your tickets, visa and vouchers, and read updates from our team.",
         `There is no password to remember. Open the portal, enter ${p.email}, and we'll email you a 6-digit code each time you sign in.`,
       ],
       cta: { label: "Open my trips", url: p.loginUrl },
@@ -79,7 +79,7 @@ export const emails = {
     build("itinerary.changes_requested", `Changes requested: ${p.title}`, {
       heading: "A customer wants changes to their plan",
       paragraphs: [`${p.customerName} reviewed "${p.title}" and asked for changes:`, p.message],
-      cta: { label: "Open itinerary", url: p.url },
+      cta: { label: "Open quotation", url: p.url },
     }),
 
   reviewToStaff: (p: { customerName: string; bookingRef: string; rating: number; comment: string; url: string }) =>
@@ -118,9 +118,9 @@ export const emails = {
 
   itineraryShared: (p: { customerName: string; title: string; url: string; validUntil: Date | string | null; agentName: string | null }) =>
     build("itinerary.shared", `Your trip plan: ${p.title}`, {
-      heading: "Your itinerary is ready",
+      heading: "Your quotation is ready",
       paragraphs: [`Assalamu Alaikum ${firstName(p.customerName)},`, `${p.agentName ?? "Our team"} has prepared "${p.title}" for you. Open it to see the day-by-day plan and pricing, and accept it when you're happy.${p.validUntil ? ` This proposal is valid until ${day(p.validUntil)}.` : ""}`],
-      cta: { label: "View itinerary", url: p.url },
+      cta: { label: "View quotation", url: p.url },
     }),
 
   partnerApproved: (p: { contactName: string; companyName: string; loginUrl: string }) =>
@@ -173,10 +173,10 @@ export const emails = {
     }),
 
   itineraryAcceptedToStaff: (p: { title: string; customerName: string | null; url: string }) =>
-    build("itinerary.accepted", `Itinerary accepted: ${p.title}`, {
-      heading: "A customer accepted an itinerary",
+    build("itinerary.accepted", `Quotation accepted: ${p.title}`, {
+      heading: "A customer accepted a quotation",
       paragraphs: [`${p.customerName ?? "The customer"} accepted "${p.title}". You can now convert it into a booking.`],
-      cta: { label: "Open itinerary", url: p.url },
+      cta: { label: "Open quotation", url: p.url },
     }),
 
   onlinePaymentToStaff: (p: { customerName: string; bookingRef: string; amount: number; receiptNo: string; url: string }) =>

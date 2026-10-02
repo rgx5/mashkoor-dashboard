@@ -24,14 +24,17 @@ import { fromDateOnly, orderByFrom, paginate, toDateOnly, toIso, userRef, userRe
 import { AuditService } from "../../../core/audit/audit.service";
 import type { RequestUser } from "../../../core/auth/request-user";
 import { AppError } from "../../../core/http/app-error";
+import { MailService } from "../../../core/mail/mail.service";
 import { SequenceService } from "../../../core/numbering/sequence.service";
 import { PrismaService } from "../../../core/prisma/prisma.service";
 import { AbilityFactory } from "../../../core/rbac/ability.factory";
 import { ActivitiesService } from "../../activities/domain/activities.service";
 import { CustomersService } from "../../customers/domain/customers.service";
+import { ItinerariesService } from "../../itineraries/domain/itineraries.service";
 
 const include = {
   owner: userRefSelect,
+  accountant: userRefSelect,
   customer: { select: { id: true, refNo: true, fullName: true } },
 } satisfies Prisma.LeadInclude;
 
@@ -57,14 +60,24 @@ export const toLeadRow = (l: LeadWithRefs): LeadRow => ({
   stage: l.stage,
   priority: l.priority,
   owner: userRef(l.owner),
+  accountant: userRef(l.accountant),
   nextFollowUpAt: toIso(l.nextFollowUpAt),
   lastContactedAt: toIso(l.lastContactedAt),
   stageChangedAt: toIso(l.stageChangedAt)!,
   createdAt: toIso(l.createdAt)!,
 });
 
-const toLeadDetail = (l: LeadWithRefs): LeadDetail => ({
+interface LeadExtras {
+  quotation: LeadDetail["quotation"];
+  booking: LeadDetail["booking"];
+  invoice: LeadDetail["invoice"];
+}
+
+const toLeadDetail = (l: LeadWithRefs, extras: LeadExtras): LeadDetail => ({
   ...toLeadRow(l),
+  ...extras,
+  enquiryRef: l.enquiryRef,
+  accountantAssignedAt: toIso(l.accountantAssignedAt),
   flexibleDates: l.flexibleDates,
   budgetMin: l.budgetMin,
   budgetMax: l.budgetMax,
@@ -89,6 +102,8 @@ export class LeadsService {
     private readonly audit: AuditService,
     private readonly activities: ActivitiesService,
     private readonly customers: CustomersService,
+    private readonly itineraries: ItinerariesService,
+    private readonly mail: MailService,
   ) {}
 
   // ─── Queries ──────────────────────────────────────────────────────────────
@@ -309,6 +324,18 @@ export class LeadsService {
         });
       }
     }
+    if (change.stage === "WAITING_PAYMENT") {
+      const quotations = await this.prisma.itinerary.count({ where: { leadId: id, isTemplate: false, status: { in: ["SHARED", "ACCEPTED", "CONVERTED"] } } });
+      if (quotations === 0) throw new AppError(HttpStatus.UNPROCESSABLE_ENTITY, "LEAD_NO_QUOTATION", "Send a quotation to the customer before moving this lead to payment");
+      // From here the person is a customer: create the record now so super admin and accounts can see their details.
+      if (!lead.customerId) {
+        // Someone with this number may already be a customer — link to them rather than stopping on a duplicate.
+        const existing = (await this.customers.findDuplicates(lead.phone, lead.email))[0];
+        await this.convertToCustomer(actor, id, existing?.id);
+        lead.customerId = (await this.prisma.lead.findUniqueOrThrow({ where: { id }, select: { customerId: true } })).customerId;
+      }
+      await this.prisma.itinerary.updateMany({ where: { leadId: id, customerId: null }, data: { customerId: lead.customerId } });
+    }
     if (change.stage === "WON" && !lead.customerId) {
       // Phase 2 will require a linked booking; until then a won lead must at least be a customer.
       throw new AppError(HttpStatus.UNPROCESSABLE_ENTITY, "LEAD_NOT_CONVERTED", "Convert this lead to a customer before marking it won");
@@ -342,6 +369,14 @@ export class LeadsService {
         tx,
       );
     });
+    if (change.stage === "WAITING_PAYMENT") {
+      await this.mail.sendToStaff(["SUPER_ADMIN"], () => ({
+        subject: `${lead.contactName} is awaiting payment — assign an accountant (${lead.refNo})`,
+        text: `${lead.contactName} has accepted the quotation and ${lead.refNo} is now at "Awaiting payment". Open the lead and assign an accountant so an invoice can be raised and payments recorded.`,
+        entityType: "Lead",
+        entityId: id,
+      }));
+    }
     return this.detail(id);
   }
 
@@ -360,6 +395,49 @@ export class LeadsService {
         tx,
       );
       await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "lead.assigned", entityType: "Lead", entityId: id, before: { ownerId: lead.ownerId }, after: { ownerId } }, tx);
+    });
+    return this.detail(id);
+  }
+
+  /**
+   * Super admin hands a lead that is awaiting payment to an accountant. The accepted quotation becomes a booking (the
+   * accountant records payments against it) and the sales owner keeps read-only access. Passing null takes it back.
+   */
+  async assignAccountant(actor: RequestUser, id: string, accountantId: string | null): Promise<LeadDetail> {
+    const lead = await this.findAccessible(actor, id, "read");
+    const ability = this.abilities.forUser(actor);
+    if (!ability.can("assign", "Lead")) throw AppError.forbidden("Only managers can assign an accountant");
+
+    if (!accountantId) {
+      await this.prisma.lead.update({ where: { id }, data: { accountantId: null, accountantAssignedAt: null } });
+      await this.activities.record({ entityType: "LEAD", entityId: id, customerId: lead.customerId, type: "SYSTEM", body: "Taken back from accounts", actorId: actor.id });
+      return this.detail(id);
+    }
+
+    if (lead.stage !== "WAITING_PAYMENT") throw AppError.conflict("Move the lead to Awaiting payment before handing it to an accountant");
+    const accountant = await this.prisma.user.findFirst({ where: { id: accountantId, type: "STAFF", status: "ACTIVE", role: { in: ["ACCOUNTS", "SUPER_ADMIN"] } }, select: { id: true, name: true, email: true } });
+    if (!accountant) throw AppError.notFound("Accountant");
+
+    // The accountant works on a booking, so make sure the accepted quotation has become one.
+    const existing = await this.prisma.booking.findFirst({ where: { leadId: id, status: { not: "CANCELLED" } }, select: { id: true } });
+    if (!existing) {
+      const quotation = await this.prisma.itinerary.findFirst({ where: { leadId: id, isTemplate: false, status: { in: ["ACCEPTED", "SHARED"] } }, orderBy: { createdAt: "desc" }, select: { id: true } });
+      if (!quotation) throw AppError.conflict("There is no quotation to bill. Send one to the customer first.");
+      await this.itineraries.convertToBooking(actor, quotation.id);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.lead.update({ where: { id }, data: { accountantId: accountant.id, accountantAssignedAt: new Date() } });
+      await this.activities.record({ entityType: "LEAD", entityId: id, customerId: lead.customerId, type: "SYSTEM", body: `Handed to accountant ${accountant.name} for invoicing and payment`, meta: { accountantId: accountant.id }, actorId: actor.id }, tx);
+      await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "lead.accountant_assigned", entityType: "Lead", entityId: id, before: { accountantId: lead.accountantId }, after: { accountantId: accountant.id } }, tx);
+    });
+    await this.mail.send({
+      to: accountant.email,
+      toName: accountant.name,
+      subject: `${lead.contactName} (${lead.refNo}) is ready for invoicing`,
+      text: `${lead.contactName} has accepted the quotation. Open the lead in the dashboard to create the invoice, send it, and record the payments as they arrive.`,
+      entityType: "Lead",
+      entityId: id,
     });
     return this.detail(id);
   }
@@ -424,7 +502,12 @@ export class LeadsService {
   async findAccessible(actor: RequestUser, id: string, action: "read" | "update") {
     const lead = await this.prisma.lead.findUnique({ where: { id } });
     if (!lead) throw AppError.notFound("Lead");
-    if (!this.abilities.forUser(actor).can(action, subject("Lead", lead))) throw AppError.forbidden();
+    const ability = this.abilities.forUser(actor);
+    if (!ability.can(action, subject("Lead", lead))) throw AppError.forbidden();
+    // Once the lead is with accounts, the sales rep who brought it in can still follow it but not change it.
+    if (action === "update" && lead.accountantId && !ability.can("assign", "Lead")) {
+      throw AppError.forbidden("This lead has been handed to accounts, so it is now read-only");
+    }
     return lead;
   }
 
@@ -434,6 +517,12 @@ export class LeadsService {
   }
 
   private async detail(id: string) {
-    return toLeadDetail(await this.prisma.lead.findUniqueOrThrow({ where: { id }, include }));
+    const [lead, quotation, booking, invoice] = await Promise.all([
+      this.prisma.lead.findUniqueOrThrow({ where: { id }, include }),
+      this.prisma.itinerary.findFirst({ where: { leadId: id, isTemplate: false }, orderBy: { createdAt: "desc" }, select: { id: true, refNo: true, status: true } }),
+      this.prisma.booking.findFirst({ where: { leadId: id, status: { not: "CANCELLED" } }, orderBy: { createdAt: "desc" }, select: { id: true, refNo: true } }),
+      this.prisma.invoice.findFirst({ where: { leadId: id, status: "ISSUED" }, orderBy: { createdAt: "desc" }, select: { id: true, refNo: true } }),
+    ]);
+    return toLeadDetail(lead, { quotation, booking, invoice });
   }
 }

@@ -10,10 +10,12 @@ import type {
   Currency,
   Customer,
   Destination,
+  Enquiry,
   Faq,
   FlightSeatBlock,
   Hotel,
   InboundEvent,
+  Invoice,
   Itinerary,
   Lead,
   NotificationLog,
@@ -79,6 +81,8 @@ export type AppSubjects =
       NotificationLog: NotificationLog;
       Contact: Contact;
       Currency: Currency;
+      Enquiry: Enquiry;
+      Invoice: Invoice;
     }>;
 
 export type AppAbility = PureAbility<[Action, AppSubjects], PrismaQuery>;
@@ -122,6 +126,8 @@ export class AbilityFactory {
         can("manage", "FlightSeatBlock");
         can("manage", "PricingRule");
         can("manage", "Currency");
+        can("manage", "Enquiry");
+        can("read", "Invoice");
         can("manage", "Booking");
         // M08–M09: partner directory, KYC review and wallet administration.
         can("manage", "Partner");
@@ -155,6 +161,9 @@ export class AbilityFactory {
         can("read", "FlightSeatBlock");
         can("read", "PricingRule");
         can("read", "Currency");
+        // Raw enquiries: their own assigned ones, and they can note down a phone call or walk-in themselves.
+        can(["read", "update"], "Enquiry", { ownerId: user.id });
+        can("create", "Enquiry");
         // Own bookings plus the unassigned queue; cost/margin are hidden in the response, not by ability.
         can(["read", "create", "update", "attach", "notify", "collect"], "Booking", { ownerId: user.id });
         can(["read", "create", "update", "attach", "notify", "collect"], "Booking", { ownerId: null });
@@ -176,6 +185,9 @@ export class AbilityFactory {
         can("read", "Partner");
         can("funds", "Partner");
         can("manage", "Currency");
+        // Leads handed over for payment, and the invoices raised for them.
+        can("read", "Lead", { accountantId: user.id });
+        can(["read", "create", "update"], "Invoice");
         can("read", "Itinerary");
         can("read", "InboundEvent");
         break;

@@ -122,6 +122,8 @@ export interface InboundEventRow {
   summary: string;
   error: string | null;
   leadId: string | null;
+  /** Set while the enquiry is still waiting to be called; cleared (and leadId set) once it becomes a lead. */
+  enquiryId: string | null;
   createdAt: string;
   processedAt: string | null;
 }

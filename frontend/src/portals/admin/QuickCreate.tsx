@@ -1,20 +1,34 @@
-import { ListTodo, Luggage, Plus, Target, Users } from "lucide-react";
+import { Inbox, ListTodo, Luggage, Plus, Target, Users, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useAbility } from "@/core/rbac/ability";
+import { NewEnquiryDialog } from "@/modules/enquiries";
 
-const ITEMS = [
-  { label: "Lead", hint: "A new enquiry", to: "/admin/leads?new=1", icon: Target, can: ["create", "Lead"] },
+interface Item {
+  label: string;
+  hint: string;
+  icon: LucideIcon;
+  can: readonly [string, string];
+  /** Opens a page… */
+  to?: string;
+  /** …or a popup, without leaving the page you are on. */
+  popup?: "enquiry";
+}
+
+const ITEMS: Item[] = [
+  { label: "Enquiry", hint: "A call, walk-in or message", popup: "enquiry", icon: Inbox, can: ["create", "Enquiry"] },
+  { label: "Lead", hint: "A customer whose requirements you have", to: "/admin/leads?new=1", icon: Target, can: ["create", "Lead"] },
   { label: "Customer", hint: "Add a traveller record", to: "/admin/customers?new=1", icon: Users, can: ["create", "Customer"] },
   { label: "Booking", hint: "Flights, hotels, packages", to: "/admin/bookings?new=1", icon: Luggage, can: ["create", "Booking"] },
   { label: "Task", hint: "A follow-up", to: "/admin/tasks?new=1", icon: ListTodo, can: ["create", "Task"] },
-] as const;
+];
 
 /** Global "+ New" — start any common record from anywhere. */
 export function QuickCreate() {
   const navigate = useNavigate();
   const ability = useAbility("admin");
   const [open, setOpen] = useState(false);
+  const [enquiryOpen, setEnquiryOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const items = ITEMS.filter((i) => ability.can(i.can[0], i.can[1]));
 
@@ -52,7 +66,8 @@ export function QuickCreate() {
               role="menuitem"
               onClick={() => {
                 setOpen(false);
-                navigate(item.to);
+                if (item.popup === "enquiry") setEnquiryOpen(true);
+                else if (item.to) navigate(item.to);
               }}
               className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left hover:bg-plum-50"
             >
@@ -67,6 +82,7 @@ export function QuickCreate() {
           ))}
         </div>
       )}
+      <NewEnquiryDialog open={enquiryOpen} onClose={() => setEnquiryOpen(false)} />
     </div>
   );
 }

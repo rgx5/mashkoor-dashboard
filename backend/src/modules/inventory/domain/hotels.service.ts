@@ -53,7 +53,7 @@ export const toRoomTypeRow = (rt: RoomType & { _count?: { ratePeriods: number } 
 });
 
 /** Supplier cost is for managers only; everyone else gets `null` so it can't leak through this API. */
-export const redactRateCost = (row: RatePeriodRow, canSeeCost: boolean): RatePeriodRow => (canSeeCost ? row : { ...row, costPrice: null });
+export const redactRateCost = (row: RatePeriodRow, canSeeCost: boolean): RatePeriodRow => (canSeeCost ? row : { ...row, costPrice: null, foreignAmount: null, fxRate: null });
 
 export const toRatePeriodRow = (r: RatePeriod): RatePeriodRow => ({
   id: r.id,
@@ -61,6 +61,9 @@ export const toRatePeriodRow = (r: RatePeriod): RatePeriodRow => ({
   startDate: toDateOnly(r.startDate)!,
   endDate: toDateOnly(r.endDate)!,
   costPrice: r.costPrice,
+  currency: r.currency,
+  foreignAmount: r.foreignAmount,
+  fxRate: r.fxRate,
   totalRooms: r.totalRooms,
   bookedRooms: r.bookedRooms,
   available: r.totalRooms - r.bookedRooms,
@@ -158,8 +161,9 @@ export class HotelsService {
   async createRatePeriod(actor: RequestUser, input: RatePeriodData): Promise<RatePeriodRow> {
     if (!this.abilities.forUser(actor).can("create", "RatePeriod")) throw AppError.forbidden();
     if (!(await this.prisma.roomType.findUnique({ where: { id: input.roomTypeId } }))) throw AppError.notFound("Room type");
+    const cost = await this.rateCost(input);
     const created = await this.prisma.ratePeriod.create({
-      data: { roomTypeId: input.roomTypeId, startDate: new Date(input.startDate), endDate: new Date(input.endDate), costPrice: input.costPrice, totalRooms: input.totalRooms, notes: input.notes },
+      data: { roomTypeId: input.roomTypeId, startDate: new Date(input.startDate), endDate: new Date(input.endDate), ...cost, totalRooms: input.totalRooms, notes: input.notes },
     });
     await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "ratePeriod.created", entityType: "RatePeriod", entityId: created.id, after: created });
     return redactRateCost(toRatePeriodRow(created), this.abilities.forUser(actor).can("manage", "RatePeriod"));
@@ -170,12 +174,21 @@ export class HotelsService {
     if (input.totalRooms !== undefined && input.totalRooms < before.bookedRooms) {
       throw AppError.conflict(`${before.bookedRooms} room(s) are already booked against this period`);
     }
+    const touchesCost = input.costPrice !== undefined || input.currency !== undefined || input.foreignAmount !== undefined || input.fxRate !== undefined;
+    const cost = touchesCost
+      ? await this.rateCost({
+          costPrice: input.costPrice ?? before.costPrice,
+          currency: input.currency ?? before.currency,
+          foreignAmount: input.foreignAmount !== undefined ? input.foreignAmount : before.foreignAmount,
+          fxRate: input.fxRate !== undefined ? input.fxRate : before.fxRate,
+        })
+      : {};
     const after = await this.prisma.ratePeriod.update({
       where: { id },
       data: {
         startDate: input.startDate ? new Date(input.startDate) : undefined,
         endDate: input.endDate ? new Date(input.endDate) : undefined,
-        costPrice: input.costPrice,
+        ...cost,
         totalRooms: input.totalRooms,
         notes: input.notes,
       },
@@ -205,6 +218,19 @@ export class HotelsService {
     if (!roomType) throw AppError.notFound("Room type");
     if (!this.abilities.forUser(actor).can(action, subject("RoomType", roomType))) throw AppError.forbidden();
     return roomType;
+  }
+
+  /**
+   * The rupee cost and the currency details to store. A rate quoted in another currency is converted here, from the
+   * amount and the rate typed with it, so the rupee figure everything else uses can never disagree with them.
+   */
+  private async rateCost(input: { costPrice: number; currency?: string; foreignAmount?: number | null; fxRate?: number | null }) {
+    const currency = input.currency ?? "INR";
+    if (currency === "INR") return { costPrice: input.costPrice, currency: "INR", foreignAmount: null, fxRate: null };
+    if (input.foreignAmount == null || !input.fxRate) throw AppError.conflict("Enter the rate in this currency");
+    const known = await this.prisma.currency.findUnique({ where: { code: currency }, select: { active: true } });
+    if (!known?.active) throw AppError.conflict(`${currency} isn't a currency you've set up`);
+    return { costPrice: Math.round(input.foreignAmount * input.fxRate), currency, foreignAmount: input.foreignAmount, fxRate: input.fxRate };
   }
 
   private async findRatePeriodAccessible(actor: RequestUser, id: string, action: "update" | "delete") {

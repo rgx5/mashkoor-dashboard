@@ -39,6 +39,7 @@ const include = {
   customer: { select: { id: true, fullName: true } },
   lead: { select: { id: true, refNo: true } },
   owner: userRefSelect,
+  relationshipManager: userRefSelect,
 } satisfies Prisma.ItineraryInclude;
 type ItineraryWithRefs = Prisma.ItineraryGetPayload<{ include: typeof include }>;
 
@@ -89,6 +90,7 @@ export class ItinerariesService {
   private toDetail(i: ItineraryWithRefs): ItineraryDetail {
     return {
       ...this.toRow(i),
+      relationshipManager: userRef(i.relationshipManager),
       travelTo: toDateOnly(i.travelTo),
       adults: i.adults,
       children: i.children,
@@ -163,6 +165,7 @@ export class ItinerariesService {
     if (customerId) await this.customers.findAccessible(actor, customerId, "read");
 
     const { travelFrom, travelTo, ownerId, paymentSchedule, flights, hotels, fullPaymentDueDate, ...rest } = input;
+    await this.assertManager(rest.relationshipManagerId);
     // A new quotation starts from the company's standard terms unless the author wrote their own.
     const terms = rest.terms ?? (input.isTemplate ? null : (await this.company.get()).defaultTerms);
     const created = await this.prisma.$transaction(async (tx) => {
@@ -189,7 +192,7 @@ export class ItinerariesService {
       });
       if (!input.isTemplate && (customerId || input.leadId)) {
         await this.activities.record(
-          { entityType: input.leadId ? "LEAD" : "CUSTOMER", entityId: (input.leadId ?? customerId)!, customerId, leadId: input.leadId ?? null, type: "SYSTEM", body: `Itinerary ${itinerary.refNo} created: ${itinerary.title}`, actorId: actor.id },
+          { entityType: input.leadId ? "LEAD" : "CUSTOMER", entityId: (input.leadId ?? customerId)!, customerId, leadId: input.leadId ?? null, type: "SYSTEM", body: `Quotation ${itinerary.refNo} created: ${itinerary.title}`, actorId: actor.id },
           tx,
         );
       }
@@ -201,9 +204,10 @@ export class ItinerariesService {
 
   async update(actor: RequestUser, id: string, input: ItineraryUpdateData): Promise<ItineraryDetail> {
     const before = await this.findAccessible(actor, id, "update");
-    if (before.status === "ACCEPTED" || before.status === "CONVERTED") throw AppError.conflict("This itinerary has been accepted, so it can't be changed. Duplicate it to make a new version.");
+    if (before.status === "ACCEPTED" || before.status === "CONVERTED") throw AppError.conflict("This quotation has been accepted, so it can't be changed. Duplicate it to make a new version.");
 
     const { travelFrom, travelTo, ownerId, days, lines, customerId, leadId, isTemplate, paymentSchedule, flights, hotels, fullPaymentDueDate, ...rest } = input;
+    await this.assertManager(rest.relationshipManagerId);
     if (customerId) await this.customers.findAccessible(actor, customerId, "read");
     const data: Prisma.ItineraryUncheckedUpdateInput = { ...rest };
     if (travelFrom !== undefined) data.travelFrom = fromDateOnly(travelFrom);
@@ -230,9 +234,16 @@ export class ItinerariesService {
     return this.detail(id);
   }
 
+  /** The relationship manager is printed on the quotation, so it must be someone who works here. */
+  private async assertManager(userId: string | null | undefined) {
+    if (!userId) return;
+    const user = await this.prisma.user.findFirst({ where: { id: userId, type: "STAFF", status: "ACTIVE" }, select: { id: true } });
+    if (!user) throw AppError.notFound("Relationship manager");
+  }
+
   async remove(actor: RequestUser, id: string) {
     const itinerary = await this.findAccessible(actor, id, "delete");
-    if (itinerary.status === "CONVERTED") throw AppError.conflict("This itinerary became a booking and can't be deleted");
+    if (itinerary.status === "CONVERTED") throw AppError.conflict("This quotation became a booking and can't be deleted");
     await this.prisma.itinerary.delete({ where: { id } });
     await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "itinerary.deleted", entityType: "Itinerary", entityId: id, before: { refNo: itinerary.refNo, title: itinerary.title } });
   }
@@ -274,7 +285,7 @@ export class ItinerariesService {
   async share(actor: RequestUser, id: string, validForDays: number): Promise<ItineraryDetail> {
     const itinerary = await this.findAccessible(actor, id, "update");
     if (itinerary.isTemplate) throw AppError.conflict("Templates can't be shared — make a copy for a customer first");
-    if (itinerary.status === "ACCEPTED" || itinerary.status === "CONVERTED") throw AppError.conflict("This itinerary has already been accepted");
+    if (itinerary.status === "ACCEPTED" || itinerary.status === "CONVERTED") throw AppError.conflict("This quotation has already been accepted");
     if (!itinerary.days || (itinerary.days as unknown[]).length === 0) throw AppError.conflict("Add at least one day to the plan before sharing it");
 
     await this.prisma.$transaction(async (tx) => {
@@ -286,11 +297,11 @@ export class ItinerariesService {
         const lead = await tx.lead.findUnique({ where: { id: itinerary.leadId } });
         if (lead && ["NEW", "CONTACTED"].includes(lead.stage)) {
           await tx.lead.update({ where: { id: lead.id }, data: { stage: "QUOTATION", stageChangedAt: new Date() } });
-          await this.activities.record({ entityType: "LEAD", entityId: lead.id, customerId: lead.customerId, type: "STAGE_CHANGE", body: `${lead.stage} → QUOTATION (itinerary ${itinerary.refNo} shared)`, actorId: actor.id }, tx);
+          await this.activities.record({ entityType: "LEAD", entityId: lead.id, customerId: lead.customerId, type: "STAGE_CHANGE", body: `${lead.stage} → QUOTATION (quotation ${itinerary.refNo} shared)`, actorId: actor.id }, tx);
         }
       }
       if (itinerary.leadId || itinerary.customerId) {
-        await this.activities.record({ entityType: itinerary.leadId ? "LEAD" : "CUSTOMER", entityId: (itinerary.leadId ?? itinerary.customerId)!, customerId: itinerary.customerId, leadId: itinerary.leadId, type: "SYSTEM", body: `Itinerary ${itinerary.refNo} shared with the customer`, actorId: actor.id }, tx);
+        await this.activities.record({ entityType: itinerary.leadId ? "LEAD" : "CUSTOMER", entityId: (itinerary.leadId ?? itinerary.customerId)!, customerId: itinerary.customerId, leadId: itinerary.leadId, type: "SYSTEM", body: `Quotation ${itinerary.refNo} shared with the customer`, actorId: actor.id }, tx);
       }
       await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "itinerary.shared", entityType: "Itinerary", entityId: id }, tx);
     });
@@ -299,7 +310,7 @@ export class ItinerariesService {
 
   async unshare(actor: RequestUser, id: string): Promise<ItineraryDetail> {
     const itinerary = await this.findAccessible(actor, id, "update");
-    if (itinerary.status !== "SHARED") throw AppError.conflict("Only a shared itinerary can be withdrawn");
+    if (itinerary.status !== "SHARED") throw AppError.conflict("Only a shared quotation can be withdrawn");
     await this.prisma.itinerary.update({ where: { id }, data: { status: "DRAFT", shareToken: null, validUntil: null } });
     return this.detail(id);
   }
@@ -307,7 +318,7 @@ export class ItinerariesService {
   /** Emails the share link to the customer. */
   async sendToCustomer(actor: RequestUser, id: string): Promise<{ sent: boolean; reason?: string }> {
     const itinerary = await this.findAccessible(actor, id, "update");
-    if (itinerary.status !== "SHARED" || !itinerary.shareToken) throw AppError.conflict("Share the itinerary first");
+    if (itinerary.status !== "SHARED" || !itinerary.shareToken) throw AppError.conflict("Share the quotation first");
     const customer = itinerary.customerId ? await this.prisma.customer.findUnique({ where: { id: itinerary.customerId }, select: { fullName: true, email: true } }) : null;
     if (!customer?.email) return { sent: false, reason: "This customer has no email address on file" };
     const owner = itinerary.ownerId ? await this.prisma.user.findUnique({ where: { id: itinerary.ownerId }, select: { name: true } }) : null;
@@ -325,10 +336,10 @@ export class ItinerariesService {
   async convertToBooking(actor: RequestUser, id: string): Promise<{ itinerary: ItineraryDetail; bookingId: string }> {
     const itinerary = await this.findAccessible(actor, id, "update");
     if (itinerary.isTemplate) throw AppError.conflict("Templates can't be booked — make a copy for a customer first");
-    if (itinerary.status === "CONVERTED") throw AppError.conflict("This itinerary has already been converted");
+    if (itinerary.status === "CONVERTED") throw AppError.conflict("This quotation has already been converted");
     if (!itinerary.customerId) throw AppError.conflict("Link a customer before creating the booking");
     const lines = (itinerary.lines as unknown as ItineraryLine[]) ?? [];
-    if (lines.length === 0) throw AppError.conflict("Add priced lines to the itinerary first");
+    if (lines.length === 0) throw AppError.conflict("Add priced lines to the quotation first");
 
     const lead = itinerary.leadId ? await this.prisma.lead.findUnique({ where: { id: itinerary.leadId }, select: { source: true } }) : null;
     const booking = await this.bookings.create(actor, {
@@ -339,7 +350,7 @@ export class ItinerariesService {
       destination: itinerary.destination,
       travelFrom: toDateOnly(itinerary.travelFrom),
       travelTo: toDateOnly(itinerary.travelTo),
-      notes: `Created from itinerary ${itinerary.refNo}: ${itinerary.title}`,
+      notes: `Created from quotation ${itinerary.refNo}: ${itinerary.title}`,
       source: lead?.source ?? "PHONE",
       ownerId: actor.id,
       // A negative quote adjustment is a discount; the booking carries it so both totals agree.
@@ -361,7 +372,7 @@ export class ItinerariesService {
 
     await this.prisma.itinerary.update({ where: { id }, data: { changesRequestedAt: new Date(), changesRequestNote: message } });
     const customer = await this.prisma.customer.findUniqueOrThrow({ where: { id: actor.customerId }, select: { fullName: true } });
-    await this.activities.record({ entityType: "CUSTOMER", entityId: actor.customerId, customerId: actor.customerId, type: "SYSTEM", body: `${customer.fullName} asked for changes to itinerary ${itinerary.refNo}` });
+    await this.activities.record({ entityType: "CUSTOMER", entityId: actor.customerId, customerId: actor.customerId, type: "SYSTEM", body: `${customer.fullName} asked for changes to quotation ${itinerary.refNo}` });
     await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "itinerary.changes_requested", entityType: "Itinerary", entityId: id, after: { message } });
 
     const message_ = emails.itineraryChangesToStaff({ customerName: customer.fullName, title: itinerary.title, message, url: `${this.config.get("APP_URL")}/admin/itineraries/${id}` });
@@ -378,19 +389,19 @@ export class ItinerariesService {
     // Count the visit, and let the team know the first time the customer opens it.
     const updated = await this.prisma.itinerary.update({ where: { id: itinerary.id }, data: { viewCount: { increment: 1 }, lastViewedAt: new Date() } });
     if (itinerary.viewCount === 0 && (itinerary.leadId || itinerary.customerId)) {
-      await this.activities.record({ entityType: itinerary.leadId ? "LEAD" : "CUSTOMER", entityId: (itinerary.leadId ?? itinerary.customerId)!, customerId: itinerary.customerId, leadId: itinerary.leadId, type: "SYSTEM", body: `Customer opened itinerary ${itinerary.refNo}` });
+      await this.activities.record({ entityType: itinerary.leadId ? "LEAD" : "CUSTOMER", entityId: (itinerary.leadId ?? itinerary.customerId)!, customerId: itinerary.customerId, leadId: itinerary.leadId, type: "SYSTEM", body: `Customer opened quotation ${itinerary.refNo}` });
     }
     return this.toPublic(updated);
   }
 
   async acceptByToken(token: string, name: string): Promise<PublicItinerary> {
     const itinerary = await this.findByToken(token);
-    if (itinerary.status !== "SHARED") throw AppError.conflict(itinerary.status === "DRAFT" ? "This itinerary isn't available" : "This itinerary has already been accepted");
+    if (itinerary.status !== "SHARED") throw AppError.conflict(itinerary.status === "DRAFT" ? "This quotation isn't available" : "This quotation has already been accepted");
     if (itinerary.validUntil && itinerary.validUntil < new Date()) throw AppError.conflict("This proposal has expired — please ask us to refresh it");
 
     const updated = await this.prisma.itinerary.update({ where: { id: itinerary.id }, data: { status: "ACCEPTED", acceptedAt: new Date(), acceptedBy: name } });
     if (itinerary.leadId || itinerary.customerId) {
-      await this.activities.record({ entityType: itinerary.leadId ? "LEAD" : "CUSTOMER", entityId: (itinerary.leadId ?? itinerary.customerId)!, customerId: itinerary.customerId, leadId: itinerary.leadId, type: "SYSTEM", body: `${name} accepted itinerary ${itinerary.refNo}` });
+      await this.activities.record({ entityType: itinerary.leadId ? "LEAD" : "CUSTOMER", entityId: (itinerary.leadId ?? itinerary.customerId)!, customerId: itinerary.customerId, leadId: itinerary.leadId, type: "SYSTEM", body: `${name} accepted quotation ${itinerary.refNo}` });
     }
     await this.audit.record({ action: "itinerary.accepted", entityType: "Itinerary", entityId: itinerary.id, after: { acceptedBy: name } });
 

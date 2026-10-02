@@ -35,7 +35,7 @@ export function ItinerariesPage() {
   const columns: Column<ItineraryRow>[] = [
     {
       key: "title",
-      header: "Itinerary",
+      header: "Quotation",
       cell: (i) => (
         <Link to={`/admin/itineraries/${i.id}`} className="font-semibold text-plum-700 hover:underline">
           {i.title}
@@ -65,12 +65,12 @@ export function ItinerariesPage() {
   return (
     <>
       <PageHeader
-        title="Itineraries"
+        title="Quotations"
         description="Build a day-by-day plan with a price, share it as a link, and turn an accepted one into a booking."
         actions={
           ability.can("create", "Itinerary") && (
             <Link to={`/admin/itineraries/new${view === "templates" ? "?template=1" : ""}`} className={buttonClass("primary")}>
-              <Plus className="h-4 w-4" aria-hidden /> {view === "templates" ? "New template" : "New itinerary"}
+              <Plus className="h-4 w-4" aria-hidden /> {view === "templates" ? "New template" : "New quotation"}
             </Link>
           )
         }
@@ -101,7 +101,7 @@ export function ItinerariesPage() {
         rowKey={(i) => i.id}
         loading={isLoading}
         error={error ? errorMessage(error) : null}
-        empty={{ icon: CalendarRange, title: view === "templates" ? "No templates yet" : "No itineraries yet", description: view === "templates" ? "Save a plan you reuse often (e.g. 5N Umrah) as a template." : "Create one from here, or from a lead." }}
+        empty={{ icon: CalendarRange, title: view === "templates" ? "No templates yet" : "No quotations yet", description: view === "templates" ? "Save a plan you reuse often (e.g. 5N Umrah) as a template." : "Create one from here, or from a lead." }}
         page={page}
         pageSize={data?.meta.pageSize ?? 25}
         total={data?.meta.total ?? 0}

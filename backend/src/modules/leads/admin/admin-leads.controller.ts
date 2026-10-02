@@ -1,5 +1,6 @@
 import { Body, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from "@nestjs/common";
 import {
+  leadAccountantSchema,
   leadAssignSchema,
   leadBulkSchema,
   leadConvertSchema,
@@ -75,6 +76,13 @@ export class AdminLeadsController {
   @CheckAbility("read", "Lead")
   assign(@CurrentUser() actor: RequestUser, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(leadAssignSchema)) body: { ownerId: string | null }) {
     return this.leads.assign(actor, id, body.ownerId);
+  }
+
+  @Post(":id/accountant")
+  @HttpCode(200)
+  @CheckAbility("assign", "Lead")
+  assignAccountant(@CurrentUser() actor: RequestUser, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(leadAccountantSchema)) body: { accountantId: string | null }) {
+    return this.leads.assignAccountant(actor, id, body.accountantId);
   }
 
   @Post(":id/convert-customer")

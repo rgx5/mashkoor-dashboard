@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { ITINERARY_LINE_KIND_LABELS, ITINERARY_STATUS_LABELS, LEAD_STAGE_LABELS, lineTotal } from "@mashkoor/shared";
+import { lineTotal, PRODUCT_TYPE_LABELS, TRIP_TYPE_LABELS } from "@mashkoor/shared";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import PDFDocument from "pdfkit";
@@ -10,17 +10,17 @@ import { CompanyService } from "../../company/company.service";
 import { ItinerariesService } from "./itineraries.service";
 
 // Mashkoor brand: plum with a gold accent, on soft plum tints.
-const PLUM = "#63134c";
-const PLUM_DARK = "#3a0b2c";
-const GOLD = "#f3c34a";
-const TINT = "#faf2f7";
-const TINT_LINE = "#dcc7d5";
-const INK = "#231920";
-const MUTED = "#6b5a66";
-const M = 36;
+export const PLUM = "#63134c";
+export const PLUM_DARK = "#3a0b2c";
+export const GOLD = "#f3c34a";
+export const TINT = "#faf2f7";
+export const TINT_LINE = "#dcc7d5";
+export const INK = "#231920";
+export const MUTED = "#6b5a66";
+export const M = 36;
 
 /** Looks for an OFL font that has the rupee sign (assets/fonts/NotoSans-*.ttf); without one the PDF prints "Rs." in Helvetica. */
-function findFonts() {
+export function findFonts() {
   for (const dir of [join(process.cwd(), "assets", "fonts"), join(__dirname, "..", "..", "..", "..", "assets", "fonts")]) {
     const regular = join(dir, "NotoSans-Regular.ttf");
     const bold = join(dir, "NotoSans-Bold.ttf");
@@ -30,7 +30,7 @@ function findFonts() {
 }
 
 /** The profile's uploaded logo wins; otherwise the Mashkoor logo bundled in assets/. */
-function findLogo(dataUrl: string | null): Buffer | null {
+export function findLogo(dataUrl: string | null): Buffer | null {
   if (dataUrl) return Buffer.from(dataUrl.split(",")[1] ?? "", "base64");
   for (const dir of [join(process.cwd(), "assets"), join(__dirname, "..", "..", "..", "..", "assets")]) {
     const file = join(dir, "logo.jpg");
@@ -41,12 +41,10 @@ function findLogo(dataUrl: string | null): Buffer | null {
 
 const dateOnly = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
 const dateTime = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" });
-const ORDINALS = ["1st", "2nd", "3rd", "4th", "5th"];
 
 /**
- * M10 · The quotation PDF for an itinerary. It carries every field a travel-agency quotation needs — quote details, subject and
- * relationship manager, the priced product table with discount and tax, totals, payment due dates, flight and hotel tables,
- * scan-to-pay, bank details, documents required and numbered terms — in Mashkoor's own plum and gold design.
+ * M10 · The quotation PDF for an itinerary: black and grey only, two type sizes, and a full border round every table. It carries everything on the itinerary — customer and trip summary, the priced items (with or without a breakup),
+ * totals, payment schedule, flights, hotels, the day-by-day plan, inclusions, notes, bank and UPI details and the terms.
  */
 @Injectable()
 export class QuotationPdfService {
@@ -56,14 +54,18 @@ export class QuotationPdfService {
     private readonly company: CompanyService,
   ) {}
 
-  async render(actor: RequestUser, id: string): Promise<{ fileName: string; data: Buffer }> {
+  /**
+   * `breakup` true prints every item with its own price, discount, tax and total. False prints the same items with their
+   * quantities but no prices, and one package price at the bottom.
+   */
+  async render(actor: RequestUser, id: string, breakup = true): Promise<{ fileName: string; data: Buffer }> {
     const it = await this.itineraries.get(actor, id);
-    const [profile, customer, owner, lead] = await Promise.all([
+    const [profile, customer] = await Promise.all([
       this.company.get(),
       it.customer ? this.prisma.customer.findUnique({ where: { id: it.customer.id }, select: { fullName: true, phone: true } }) : null,
-      it.owner ? this.prisma.user.findUnique({ where: { id: it.owner.id }, select: { name: true } }) : null,
-      it.lead ? this.prisma.lead.findUnique({ where: { id: it.lead.id }, select: { stage: true } }) : null,
     ]);
+    // The relationship manager chosen on the quotation, or whoever owns it.
+    const owner = it.relationshipManager ?? it.owner;
 
     const fonts = findFonts();
     const doc = new PDFDocument({ size: "A4", margin: M, bufferPages: true, info: { Title: `Quotation ${it.refNo}`, Author: profile.name } });
@@ -71,343 +73,355 @@ export class QuotationPdfService {
     doc.on("data", (c: Buffer) => chunks.push(c));
     const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
 
-    const W = doc.page.width - M * 2;
-    const BOTTOM = doc.page.height - 56;
-    const font = (bold = false, italic = false) => doc.font(fonts ? (bold ? fonts.bold : fonts.regular) : bold ? "Helvetica-Bold" : italic ? "Helvetica-Oblique" : "Helvetica");
-    const sym = fonts ? "₹" : "Rs.";
-    const money = (n: number) => `${sym} ${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const fmtDate = (v: string | null | undefined) => (v ? dateOnly.format(new Date(v)) : "");
+    // Two type sizes and two colours, everywhere: SIZE for everything, BIG for the quotation number, the customer and the total.
+    const SIZE = 10;
+    const BIG = 14;
+    const BLACK = "#1a1a1a";
+    const GREY = "#666666";
+    const PAD = 6;
 
-    // Continuation pages get a slim brand strip; the first page has the full letterhead band.
-    const strip = () => {
-      doc.rect(0, 0, doc.page.width, 26).fill(PLUM_DARK);
-      doc.rect(0, 26, doc.page.width, 2).fill(GOLD);
-      font(true).fontSize(9).fillColor("#ffffff").text(`Quotation  ·  ${it.refNo}`, M, 9, { width: W, lineBreak: false });
-      doc.y = 44;
-    };
-    doc.on("pageAdded", strip);
+    const W = doc.page.width - M * 2;
+    const BOTTOM = doc.page.height - 60;
+    const font = (bold = false) => doc.font(fonts ? (bold ? fonts.bold : fonts.regular) : bold ? "Helvetica-Bold" : "Helvetica");
+    const sym = fonts ? "₹" : "Rs.";
+    const money = (n: number) => `${sym} ${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+    const moneyExact = (n: number) => `${sym} ${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const fmtDate = (v: string | null | undefined) => (v ? dateOnly.format(new Date(v)) : "");
     const ensure = (h: number) => {
       if (doc.y + h > BOTTOM) doc.addPage();
     };
-    const label = (t: string, x: number, y: number, w: number) => font(true).fontSize(7).fillColor(MUTED).text(t.toUpperCase(), x, y, { width: w, characterSpacing: 0.6 });
-    const heading = (t: string) => {
-      ensure(50);
-      doc.y += 12;
-      const y = doc.y;
-      doc.rect(M, y + 1, 3, 12).fill(GOLD);
-      font(true).fontSize(11).fillColor(PLUM).text(t, M + 10, y, { width: W - 10 });
-      doc.y = y + 20;
+
+    const write = (s: string, x: number, y: number, o: { w: number; bold?: boolean; size?: number; color?: string; align?: "left" | "right" | "center"; spacing?: number; oneLine?: boolean }) => {
+      font(o.bold).fontSize(o.size ?? SIZE).fillColor(o.color ?? BLACK).text(s, x, y, { width: o.w, align: o.align ?? "left", characterSpacing: o.spacing, lineBreak: !o.oneLine });
     };
-    const cell = (x: number, y: number, w: number, h: number, fill?: string) => {
-      if (fill) doc.rect(x, y, w, h).fillAndStroke(fill, TINT_LINE);
-      else doc.rect(x, y, w, h).strokeColor(TINT_LINE).lineWidth(0.7).stroke();
+    const heightOf = (s: string, w: number, bold = false, size = SIZE) => {
+      font(bold).fontSize(size);
+      return doc.heightOfString(s || " ", { width: w });
+    };
+    const rect = (x: number, y: number, w: number, h: number) => doc.rect(x, y, w, h).lineWidth(0.6).strokeColor(GREY).stroke();
+    const vlines = (xs: number[], y: number, h: number) => {
+      for (const x of xs) doc.moveTo(x, y).lineTo(x, y + h).lineWidth(0.6).strokeColor(GREY).stroke();
+    };
+    const section = (title: string) => {
+      // Keep a heading together with its first rows instead of stranding it at the foot of a page.
+      ensure(100);
+      doc.y += 16;
+      write(title.toUpperCase(), M, doc.y, { w: W, bold: true, spacing: 1, oneLine: true });
+      doc.y += 20;
     };
 
-    // ── Letterhead ────────────────────────────────────────────────────────
+    /** A table with a border round every cell: a bold header row, then one row per entry. Rows wrap and never split across pages. */
+    const table = (columns: { label: string; width: number; align?: "left" | "right" }[], rows: string[][]) => {
+      const xs: number[] = [];
+      let acc = M;
+      for (const c of columns) {
+        xs.push(acc);
+        acc += c.width;
+      }
+      const head = () => {
+        const h = Math.max(...columns.map((c) => heightOf(c.label, c.width - PAD * 2, true))) + PAD * 2;
+        const y0 = doc.y;
+        rect(M, y0, W, h);
+        vlines(xs.slice(1), y0, h);
+        columns.forEach((c, i) => write(c.label, xs[i]! + PAD, y0 + PAD, { w: c.width - PAD * 2, bold: true, align: c.align }));
+        doc.y = y0 + h;
+      };
+      const rowHeight = (r: string[]) => Math.max(...r.map((c, i) => heightOf(c, columns[i]!.width - PAD * 2))) + PAD * 2;
+      const headHeight = Math.max(...columns.map((c) => heightOf(c.label, c.width - PAD * 2, true))) + PAD * 2;
+      if (doc.y + headHeight + (rows[0] ? rowHeight(rows[0]) : 0) > BOTTOM) doc.addPage();
+      head();
+      for (const r of rows) {
+        const h = rowHeight(r);
+        if (doc.y + h > BOTTOM) {
+          doc.addPage();
+          head();
+        }
+        const y0 = doc.y;
+        rect(M, y0, W, h);
+        vlines(xs.slice(1), y0, h);
+        r.forEach((c, i) => write(c, xs[i]! + PAD, y0 + PAD, { w: columns[i]!.width - PAD * 2, align: columns[i]!.align }));
+        doc.y = y0 + h;
+      }
+    };
+
+    /** A single-column list whose bold first row is its own title (inclusions, notes, documents). */
+    const listTable = (title: string, items: string[]) => {
+      ensure(80);
+      doc.y += 16;
+      table([{ label: title, width: W }], items.map((item) => [item]));
+    };
+
+    // ── Header: who we are, and what this document is ─────────────────────
     const logo = findLogo(profile.logoDataUrl);
     if (logo) {
       try {
-        doc.image(logo, M, 20, { fit: [128, 72] });
+        doc.image(logo, M, 30, { fit: [120, 56] });
       } catch {
         /* an unreadable logo just leaves the header without one */
       }
     } else {
-      font(true).fontSize(17).fillColor(PLUM).text(profile.legalName ?? profile.name, M, 44, { width: W * 0.55, lineBreak: false });
+      write(profile.legalName ?? profile.name, M, 40, { w: W * 0.5, bold: true, size: BIG, oneLine: true });
     }
-    font(true).fontSize(9).fillColor(PLUM).text("QUOTATION", M + W * 0.55, 30, { width: W * 0.45, align: "right", characterSpacing: 3, lineBreak: false });
-    font(true).fontSize(26).fillColor(PLUM_DARK).text(it.refNo, M + W * 0.55, 45, { width: W * 0.45, align: "right", lineBreak: false });
-    font().fontSize(8.5).fillColor(MUTED).text(`Issued ${dateOnly.format(new Date(it.createdAt))}`, M + W * 0.55, 76, { width: W * 0.45, align: "right", lineBreak: false });
-    doc.rect(0, 104, doc.page.width, 4).fill(PLUM);
-    doc.rect(0, 108, doc.page.width, 2).fill(GOLD);
-    doc.y = 124;
+    write("QUOTATION", M + W * 0.5, 30, { w: W * 0.5, align: "right", color: GREY, spacing: 3, oneLine: true });
+    write(it.refNo, M + W * 0.5, 46, { w: W * 0.5, align: "right", bold: true, size: BIG, oneLine: true });
+    write(`${dateTime.format(new Date(it.createdAt)).replace(",", "")}${it.validUntil ? `   ·   Valid till ${fmtDate(it.validUntil)}` : ""}`, M + W * 0.5, 68, { w: W * 0.5, align: "right", color: GREY, oneLine: true });
+    doc.y = 104;
 
-    // ── From / prepared for ───────────────────────────────────────────────
-    const stage = lead ? LEAD_STAGE_LABELS[lead.stage] : ITINERARY_STATUS_LABELS[it.status];
+    // ── Prepared for / from ───────────────────────────────────────────────
     const customerName = customer?.fullName ?? it.customer?.fullName ?? "—";
-    const colGap = 14;
-    const colW = (W - colGap) / 2;
-    const inner = colW - 28;
-    const fromLines: [string, string][] = ([["Phone", profile.phones.join("  ·  ")], ["Email", profile.email ?? ""], ["GST", profile.gstin ?? ""], ["PAN No.", profile.pan ?? ""]] as [string, string][]).filter(([, v]) => v);
-    font().fontSize(8.5);
-    const addrH = profile.address ? doc.heightOfString(profile.address, { width: inner }) : 0;
-    const cardH = Math.max(36 + addrH + fromLines.length * 13 + 12, 98);
-    const cy = doc.y;
-    doc.roundedRect(M, cy, colW, cardH, 8).fillAndStroke(TINT, TINT_LINE);
-    doc.roundedRect(M + colW + colGap, cy, colW, cardH, 8).fillAndStroke(TINT, TINT_LINE);
-    doc.rect(M, cy + 14, 3, 14).fill(GOLD);
-    label("From", M + 16, cy + 16, inner);
-    font(true).fontSize(11).fillColor(INK).text(profile.legalName ?? profile.name, M + 16, cy + 30, { width: inner });
-    if (profile.address) font().fontSize(8.5).fillColor(MUTED).text(profile.address, M + 16, doc.y + 2, { width: inner });
-    let fy = doc.y + 6;
-    for (const [k, v] of fromLines) {
-      font(true).fontSize(8).fillColor(INK).text(`${k}: `, M + 16, fy, { continued: true, width: inner });
-      font().text(v);
-      fy += 13;
+    const half = W / 2;
+    const contact = [profile.phones.join("  ·  "), profile.email, profile.gstin && `GST ${profile.gstin}`, profile.pan && `PAN ${profile.pan}`].filter(Boolean) as string[];
+    const fromText = [profile.address ?? "", ...contact].filter(Boolean).join("\n");
+    const leftH = 18 + heightOf(customerName, half - PAD * 2, true, BIG) + (customer?.phone ? 16 : 0);
+    const rightH = 18 + heightOf(profile.legalName ?? profile.name, half - PAD * 2, true) + heightOf(fromText, half - PAD * 2);
+    const partiesH = Math.max(leftH, rightH) + PAD * 2;
+    const py = doc.y;
+    rect(M, py, W, partiesH);
+    vlines([M + half], py, partiesH);
+    write("Prepared for", M + PAD, py + PAD, { w: half - PAD * 2, color: GREY, oneLine: true });
+    write(customerName, M + PAD, py + PAD + 16, { w: half - PAD * 2, bold: true, size: BIG });
+    if (customer?.phone) write(customer.phone, M + PAD, py + PAD + 16 + heightOf(customerName, half - PAD * 2, true, BIG) + 2, { w: half - PAD * 2, color: GREY, oneLine: true });
+    write("From", M + half + PAD, py + PAD, { w: half - PAD * 2, color: GREY, oneLine: true });
+    write(profile.legalName ?? profile.name, M + half + PAD, py + PAD + 16, { w: half - PAD * 2, bold: true });
+    write(fromText, M + half + PAD, py + PAD + 16 + heightOf(profile.legalName ?? profile.name, half - PAD * 2, true) + 2, { w: half - PAD * 2, color: GREY });
+    doc.y = py + partiesH;
+
+    // ── The trip in a few lines ───────────────────────────────────────────
+    const travellers = [it.adults ? `${it.adults} adult${it.adults > 1 ? "s" : ""}` : "", it.children ? `${it.children} child${it.children > 1 ? "ren" : ""}` : ""].filter(Boolean).join(", ");
+    const facts: [string, string][] = (
+      [
+        ["Tour", it.title],
+        ["Destination", it.destination ?? ""],
+        ["Travel dates", it.travelFrom ? `${fmtDate(it.travelFrom)}${it.travelTo ? ` to ${fmtDate(it.travelTo)}` : ""}` : ""],
+        ["Travellers", travellers],
+        ["Trip", [PRODUCT_TYPE_LABELS[it.productType], TRIP_TYPE_LABELS[it.tripType]].join(" · ")],
+        ["Relationship manager", owner?.name ? `Mr. ${owner.name.replace(/^Mr\.?\s*/i, "")}` : ""],
+      ] as [string, string][]
+    ).filter(([, v]) => v);
+    const cw = W / 3;
+    for (let i = 0; i < facts.length; i += 3) {
+      const row = facts.slice(i, i + 3);
+      const h = Math.max(...row.map(([, v]) => heightOf(v, cw - PAD * 2, true))) + 16 + PAD * 2;
+      ensure(h);
+      const y0 = doc.y;
+      rect(M, y0, W, h);
+      vlines([M + cw, M + cw * 2].filter((_, j) => j < row.length - 1 || row.length === 3), y0, h);
+      row.forEach(([k, v], j) => {
+        write(k, M + j * cw + PAD, y0 + PAD, { w: cw - PAD * 2, color: GREY, oneLine: true });
+        write(v, M + j * cw + PAD, y0 + PAD + 16, { w: cw - PAD * 2, bold: true });
+      });
+      doc.y = y0 + h;
     }
-    const rx = M + colW + colGap + 16;
-    doc.rect(M + colW + colGap, cy + 14, 3, 14).fill(GOLD);
-    label("Prepared for", rx, cy + 16, inner);
-    font(true).fontSize(14).fillColor(INK).text(customerName, rx, cy + 30, { width: inner, lineBreak: false, ellipsis: true });
-    font().fontSize(9).fillColor(MUTED).text("Customer contact no.", rx, cy + 54, { width: inner, lineBreak: false });
-    font(true).fontSize(11).fillColor(INK).text(customer?.phone ?? "—", rx, cy + 66, { width: inner, lineBreak: false });
-    doc.y = cy + cardH + 12;
 
-    // ── Quote facts strip ─────────────────────────────────────────────────
-    const facts: [string, string, number][] = [
-      ["Tour name", it.title, 2.2],
-      ["Quote date", dateTime.format(new Date(it.createdAt)).replace(",", ""), 1.4],
-      ["Quote stage", stage, 1],
-      ["Quote valid till", it.validUntil ? fmtDate(it.validUntil) : "—", 1.1],
+    if (it.subject || it.quoteDescription) {
+      const parts = [it.subject ? { text: it.subject, bold: true, color: BLACK } : null, it.quoteDescription ? { text: it.quoteDescription, bold: false, color: GREY } : null].filter(Boolean) as { text: string; bold: boolean; color: string }[];
+      const h = parts.reduce((n, p) => n + heightOf(p.text, W - PAD * 2, p.bold) + 4, 0) + PAD * 2 + (it.subject ? 16 : 0);
+      ensure(h);
+      const y0 = doc.y;
+      rect(M, y0, W, h);
+      let cy = y0 + PAD;
+      if (it.subject) {
+        write("Subject", M + PAD, cy, { w: W - PAD * 2, color: GREY, oneLine: true });
+        cy += 16;
+      }
+      for (const p of parts) {
+        write(p.text, M + PAD, cy, { w: W - PAD * 2, bold: p.bold, color: p.color });
+        cy += heightOf(p.text, W - PAD * 2, p.bold) + 4;
+      }
+      doc.y = y0 + h;
+    }
+
+    // ── Pricing ───────────────────────────────────────────────────────────
+    section("Pricing");
+    const wNo = 26;
+    const wQty = breakup ? 32 : 60;
+    const wPrice = breakup ? 68 : 0;
+    const wLess = breakup ? 56 : 0;
+    const wTax = breakup ? 54 : 0;
+    const wTotal = breakup ? 78 : 0;
+    const wName = W - wNo - wQty - wPrice - wLess - wTax - wTotal;
+    const pc = [
+      { label: "No", w: wNo, align: "left" as const },
+      { label: "Item", w: wName, align: "left" as const },
+      { label: "Qty", w: wQty, align: "right" as const },
+      ...(breakup ? [{ label: "Price", w: wPrice, align: "right" as const }, { label: "Less", w: wLess, align: "right" as const }, { label: "Tax", w: wTax, align: "right" as const }, { label: "Total", w: wTotal, align: "right" as const }] : []),
     ];
-    const weight = facts.reduce((n, f) => n + f[2], 0);
-    font(true).fontSize(9.5);
-    const fh = Math.max(...facts.map(([, v, w]) => doc.heightOfString(v, { width: (W * w) / weight - 24 }))) + 32;
-    const fyTop = doc.y;
-    doc.roundedRect(M, fyTop, W, fh, 8).lineWidth(0.8).strokeColor(TINT_LINE).stroke();
-    let fx = M;
-    facts.forEach(([k, v, w], i) => {
-      const cw2 = (W * w) / weight;
-      if (i > 0) doc.moveTo(fx, fyTop + 10).lineTo(fx, fyTop + fh - 10).strokeColor(TINT_LINE).lineWidth(0.8).stroke();
-      label(k, fx + 12, fyTop + 11, cw2 - 20);
-      font(true).fontSize(9.5).fillColor(i === 2 ? PLUM : INK).text(v, fx + 12, fyTop + 24, { width: cw2 - 24 });
-      fx += cw2;
-    });
-    doc.y = fyTop + fh + 10;
-
-    // ── Subject and relationship manager ──────────────────────────────────
-    const ry = doc.y;
-    const subjW = W * 0.6;
-    doc.roundedRect(M, ry, subjW - 6, 34, 6).fill(PLUM);
-    doc.roundedRect(M + subjW + 6, ry, W - subjW - 6, 34, 6).fill(PLUM_DARK);
-    font(true).fontSize(7).fillColor(GOLD).text("SUBJECT", M + 14, ry + 7, { width: subjW - 30, characterSpacing: 1, lineBreak: false });
-    font(true).fontSize(10.5).fillColor("#ffffff").text(it.subject ?? customerName, M + 14, ry + 18, { width: subjW - 30, lineBreak: false, ellipsis: true });
-    font(true).fontSize(7).fillColor(GOLD).text("RELATIONSHIP MANAGER", M + subjW + 20, ry + 7, { width: W - subjW - 34, characterSpacing: 1, lineBreak: false });
-    font(true).fontSize(10.5).fillColor("#ffffff").text(owner?.name ? `Mr. ${owner.name.replace(/^Mr\.?\s*/i, "")}` : "—", M + subjW + 20, ry + 18, { width: W - subjW - 34, lineBreak: false, ellipsis: true });
-    doc.y = ry + 50;
-
-    // ── Product table ─────────────────────────────────────────────────────
-    const wNo = 28;
-    const wQty = 30;
-    const wPrice = 66;
-    const wAmt = 66;
-    const wLess = 52;
-    const wTax = 52;
-    const wTotal = 70;
-    const wName = W - wNo - wQty - wPrice - wAmt - wLess - wTax - wTotal;
-    const xs = [M, M + wNo, M + wNo + wName, M + wNo + wName + wQty, M + wNo + wName + wQty + wPrice, M + wNo + wName + wQty + wPrice + wAmt, M + wNo + wName + wQty + wPrice + wAmt + wLess, M + wNo + wName + wQty + wPrice + wAmt + wLess + wTax];
-    const ws = [wNo, wName, wQty, wPrice, wAmt, wLess, wTax, wTotal];
-    const heads = ["S.NO", "Product Name", "Qty", "Price", "Amt", "Less", "Tax", "Total Amt"];
-    const tableHead = () => {
+    const pxs: number[] = [];
+    let pacc = M;
+    for (const c of pc) {
+      pxs.push(pacc);
+      pacc += c.w;
+    }
+    const pricingHead = () => {
       const y0 = doc.y;
-      doc.rect(M, y0, W, 24).fill(PLUM);
-      font(true).fontSize(7.5).fillColor("#ffffff");
-      heads.forEach((h, i) => doc.text(h.toUpperCase(), xs[i]! + 3, y0 + 8, { width: ws[i]! - 6, align: i === 1 ? "left" : "center", lineBreak: false }));
-      doc.y = y0 + 24;
+      const h = SIZE + PAD * 2 + 2;
+      rect(M, y0, W, h);
+      vlines(pxs.slice(1), y0, h);
+      pc.forEach((c, i) => write(c.label, pxs[i]! + PAD, y0 + PAD, { w: c.w - PAD * 2, bold: true, align: c.align, oneLine: true }));
+      doc.y = y0 + h;
     };
-    tableHead();
-    it.lines.forEach((line, i) => {
-      const kind = line.kind && line.kind !== "OTHER" ? ITINERARY_LINE_KIND_LABELS[line.kind] : "";
-      const detail = line.detail ?? "";
-      // What the supplier actually billed, for a foreign-currency line — informational only; unitPrice (INR) is
-      // already the converted figure everything else uses.
-      const fxNote = line.currency && line.currency !== "INR" && line.foreignAmount != null && line.fxRate
-        ? `${line.currency} ${line.foreignAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} @ ${money(line.fxRate)}/${line.currency}`
-        : "";
-      font(true).fontSize(9);
-      const th = doc.heightOfString(line.description, { width: wName - 12 });
-      font().fontSize(8);
-      const dh = detail ? doc.heightOfString(detail, { width: wName - 12 }) + 4 : 0;
-      font(false, true).fontSize(7);
-      const fh = fxNote ? doc.heightOfString(fxNote, { width: wName - 12 }) + 3 : 0;
-      const h = Math.max(th + dh + fh + (kind ? 11 : 0) + 14, 34);
-      if (doc.y + h > BOTTOM) {
+    pricingHead();
+    it.lines.forEach((l, i) => {
+      const detail = l.detail ?? "";
+      // What the supplier actually billed, for a foreign-currency line — informational only; unitPrice (INR) is the figure everything uses.
+      const fxNote = breakup && l.currency && l.currency !== "INR" && l.foreignAmount != null && l.fxRate ? `${l.currency} ${l.foreignAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} @ ${moneyExact(l.fxRate)}/${l.currency}` : "";
+      const inner = wName - PAD * 2;
+      const th = heightOf(l.description, inner, true);
+      const dh = detail ? heightOf(detail, inner) + 2 : 0;
+      const fh = fxNote ? heightOf(fxNote, inner) + 2 : 0;
+      const taxLabel = (l.taxPercent ?? 0) > 0 ? 14 : 0;
+      const h = Math.max(th + dh + fh + PAD * 2, SIZE + PAD * 2 + taxLabel + 2);
+      // The last item travels with the totals, so a page never starts with a total and no items above it.
+      if (doc.y + h + (i === it.lines.length - 1 ? 110 : 0) > BOTTOM) {
         doc.addPage();
-        tableHead();
+        pricingHead();
       }
       const y0 = doc.y;
-      ws.forEach((w, k) => cell(xs[k]!, y0, w, h, i % 2 === 0 ? TINT : undefined));
-      let ty = y0 + 6;
-      if (kind) {
-        font(true).fontSize(6.5).fillColor(PLUM).text(kind.toUpperCase(), xs[1]! + 6, ty, { width: wName - 12, characterSpacing: 0.5 });
-        ty += 10;
+      rect(M, y0, W, h);
+      vlines(pxs.slice(1), y0, h);
+      const amount = l.quantity * l.unitPrice;
+      const tax = Math.round((Math.max(0, amount - (l.discount ?? 0)) * (l.taxPercent ?? 0)) / 100);
+      write(String(i + 1), pxs[0]! + PAD, y0 + PAD, { w: wNo - PAD * 2, color: GREY, oneLine: true });
+      write(l.description, pxs[1]! + PAD, y0 + PAD, { w: inner, bold: true });
+      if (detail) write(detail, pxs[1]! + PAD, y0 + PAD + th + 2, { w: inner, color: GREY });
+      if (fxNote) write(fxNote, pxs[1]! + PAD, y0 + PAD + th + dh + 2, { w: inner, color: GREY });
+      write(String(l.quantity), pxs[2]! + PAD, y0 + PAD, { w: wQty - PAD * 2, align: "right", oneLine: true });
+      if (breakup) {
+        write(money(l.unitPrice), pxs[3]! + PAD, y0 + PAD, { w: wPrice - PAD * 2, align: "right", oneLine: true });
+        write(l.discount ? money(l.discount) : "—", pxs[4]! + PAD, y0 + PAD, { w: wLess - PAD * 2, align: "right", color: l.discount ? BLACK : GREY, oneLine: true });
+        write(tax ? money(tax) : "—", pxs[5]! + PAD, y0 + PAD, { w: wTax - PAD * 2, align: "right", color: tax ? BLACK : GREY, oneLine: true });
+        if ((l.taxPercent ?? 0) > 0) write(`${l.taxPercent}%`, pxs[5]! + PAD, y0 + PAD + 14, { w: wTax - PAD * 2, align: "right", color: GREY, oneLine: true });
+        write(money(lineTotal(l)), pxs[6]! + PAD, y0 + PAD, { w: wTotal - PAD * 2, align: "right", bold: true, oneLine: true });
       }
-      font(true).fontSize(9).fillColor(INK).text(line.description, xs[1]! + 6, ty, { width: wName - 12 });
-      if (detail) font(false, true).fontSize(8).fillColor(MUTED).text(detail, xs[1]! + 6, ty + th + 4, { width: wName - 12 });
-      if (fxNote) font(false, true).fontSize(7).fillColor(PLUM).text(fxNote, xs[1]! + 6, ty + th + dh + 4, { width: wName - 12 });
-      const amount = line.quantity * line.unitPrice;
-      const tax = Math.round(((Math.max(0, amount - (line.discount ?? 0))) * (line.taxPercent ?? 0)) / 100);
-      font().fontSize(8.5).fillColor(INK);
-      doc.text(String(i + 1), xs[0]! + 3, y0 + 6, { width: wNo - 6, align: "center" });
-      doc.text(String(line.quantity), xs[2]! + 3, y0 + 6, { width: wQty - 6, align: "center" });
-      doc.fontSize(7.5);
-      doc.text(money(line.unitPrice), xs[3]! + 3, y0 + 6, { width: wPrice - 6, align: "center" });
-      doc.text(money(amount), xs[4]! + 3, y0 + 6, { width: wAmt - 6, align: "center" });
-      doc.text(money(line.discount ?? 0), xs[5]! + 3, y0 + 6, { width: wLess - 6, align: "center" });
-      doc.text(money(tax), xs[6]! + 3, y0 + 6, { width: wTax - 6, align: "center" });
-      if ((line.taxPercent ?? 0) > 0) font().fontSize(6.5).fillColor(MUTED).text(`${line.taxPercent}%`, xs[6]! + 3, y0 + 20, { width: wTax - 6, align: "center" });
-      font(true).fontSize(7.5).fillColor(INK).text(money(lineTotal(line)), xs[7]! + 3, y0 + 6, { width: wTotal - 6, align: "center" });
       doc.y = y0 + h;
     });
     if (it.lines.length === 0) {
-      cell(M, doc.y, W, 26);
-      font().fontSize(8.5).fillColor(MUTED).text("No items priced yet.", M + 10, doc.y + 9, { width: W - 20 });
-      doc.y += 26;
+      const y0 = doc.y;
+      rect(M, y0, W, 30);
+      write("No items priced yet.", M + PAD, y0 + PAD + 2, { w: W - PAD * 2, color: GREY, oneLine: true });
+      doc.y = y0 + 30;
     }
 
     // ── Totals ────────────────────────────────────────────────────────────
-    ensure(84);
+    ensure(110);
     doc.y += 12;
     const subTotal = it.lines.reduce((n, l) => n + lineTotal(l), 0);
-    const tx = M + W - 240;
-    let ty2 = doc.y;
-    for (const [k, v] of [["Sub Total", money(subTotal)], ["Adjustments", money(it.adjustment)]] as const) {
-      font(true).fontSize(9).fillColor(MUTED).text(`${k} :`, tx, ty2, { width: 110, align: "right", lineBreak: false });
-      font(true).fontSize(9).fillColor(INK).text(v, tx + 116, ty2, { width: 124, align: "right", lineBreak: false });
-      ty2 += 16;
-    }
-    doc.roundedRect(tx, ty2 + 2, 240, 30, 6).fill(PLUM);
-    font(true).fontSize(9).fillColor(GOLD).text("GRAND TOTAL", tx + 12, ty2 + 12, { width: 100, characterSpacing: 1, lineBreak: false });
-    font(true).fontSize(13).fillColor("#ffffff").text(money(it.totalPrice), tx + 100, ty2 + 9, { width: 132, align: "right", lineBreak: false });
-    doc.y = ty2 + 44;
-
-    // ── Payment due dates, description, notes ─────────────────────────────
-    ensure(9 * 20);
-    const line = (lab: string, mid: string, right: string, tinted = false) => {
+    const tw = 270;
+    const tx = M + W - tw;
+    const labelW = 120;
+    const rowsT: { label: string; value: string; big?: boolean }[] = breakup ? [{ label: "Sub total", value: money(subTotal) }, ...(it.adjustment ? [{ label: "Adjustment", value: money(it.adjustment) }] : []), { label: "Total", value: money(it.totalPrice), big: true }] : [{ label: "Package price", value: money(it.totalPrice), big: true }];
+    for (const r of rowsT) {
+      const h = r.big ? BIG + PAD * 2 + 2 : SIZE + PAD * 2 + 2;
       const y0 = doc.y;
-      cell(M, y0, W, 20, tinted ? TINT : undefined);
-      font(true).fontSize(8.5).fillColor(INK).text(lab, M + 10, y0 + 6, { width: 170, lineBreak: false });
-      font().fontSize(8.5).fillColor(INK).text(mid, M + 190, y0 + 6, { width: 170, lineBreak: false });
-      font(true).fontSize(8.5).fillColor(INK).text(right, M + W - 140, y0 + 6, { width: 130, align: "right", lineBreak: false });
-      doc.y = y0 + 20;
-    };
-    line("Full Payment Due Date :", it.fullPaymentDueDate ? fmtDate(it.fullPaymentDueDate) : "", money(it.totalPrice), true);
-    ORDINALS.forEach((o, i) => {
-      const p = it.paymentSchedule[i];
-      line(`${o} Payment Due Date :`, p?.dueDate ? fmtDate(p.dueDate) : "", p ? money(p.amount) : "");
-    });
-    for (const [lab, text] of [["Description :", it.quoteDescription], ["Notes :", it.quoteNotes]] as const) {
-      font().fontSize(8.5);
-      const h = Math.max(20, doc.heightOfString(text ?? "", { width: W - 130 }) + 12);
-      ensure(h);
-      const y0 = doc.y;
-      cell(M, y0, W, h);
-      font(true).fontSize(8.5).fillColor(INK).text(lab, M + 10, y0 + 6, { width: 100, lineBreak: false });
-      font().fontSize(8.5).fillColor(INK).text(text ?? "", M + 120, y0 + 6, { width: W - 130 });
+      rect(tx, y0, tw, h);
+      vlines([tx + labelW], y0, h);
+      write(r.label, tx + PAD, y0 + PAD + (r.big ? 2 : 0), { w: labelW - PAD * 2, bold: r.big, oneLine: true });
+      write(r.value, tx + labelW + PAD, y0 + PAD, { w: tw - labelW - PAD * 2, align: "right", bold: r.big, size: r.big ? BIG : SIZE, oneLine: true });
       doc.y = y0 + h;
     }
-    doc.y += 8;
+    doc.y += 4;
 
-    // ── Flight and hotel tables (always shown, so they can be filled in by hand too) ──
-    const grid = (headers: string[], widths: number[], data: string[][], minRows: number) => {
-      const rowsToDraw = data.length ? data : Array.from({ length: minRows }, () => headers.map(() => ""));
-      const draw = () => {
-        const y0 = doc.y;
-        font(true).fontSize(6.8);
-        const hh = Math.max(...headers.map((h, i) => doc.heightOfString(h.toUpperCase(), { width: widths[i]! - 8 }))) + 12;
-        doc.rect(M, y0, W, hh).fill(PLUM);
-        let x = M;
-        headers.forEach((h, i) => {
-          doc.fillColor("#ffffff").text(h.toUpperCase(), x + 4, y0 + 6, { width: widths[i]! - 8, align: "center" });
-          x += widths[i]!;
-        });
-        doc.y = y0 + hh;
-      };
-      ensure(70);
-      draw();
-      rowsToDraw.forEach((r, ri) => {
-        font().fontSize(8);
-        const h = Math.max(...r.map((c, i) => doc.heightOfString(c || " ", { width: widths[i]! - 8 })), 12) + 10;
-        if (doc.y + h > BOTTOM) {
-          doc.addPage();
-          draw();
-        }
-        const y0 = doc.y;
-        let x = M;
-        r.forEach((c, i) => {
-          cell(x, y0, widths[i]!, h, ri % 2 === 0 ? TINT : undefined);
-          font().fontSize(8).fillColor(INK).text(c, x + 4, y0 + 5, { width: widths[i]! - 8, align: "center" });
-          x += widths[i]!;
-        });
-        doc.y = y0 + h;
-      });
-      doc.y += 10;
-    };
-    const wf = [46, 54, 62, 54, 62, 48, 56, 56];
-    grid(["Trip Type", "Departure City", "Departure Date/Time", "Arrival City", "Arrival Date/Time", "Airlines", "Hand-Carry Weight Allowance", "Check-In Baggage Allowance", "ZamZam Check-in Allowance"], [...wf, W - wf.reduce((a, b) => a + b, 0)], it.flights.map((f) => [f.tripType, f.departureCity, f.departureAt, f.arrivalCity, f.arrivalAt, f.airline, f.handCarry, f.checkInBaggage, f.zamzam]), 2);
-    grid(["City", "Hotel", "Distance from Haram", "Check-in Date", "Check-out Date"], [W * 0.16, W * 0.3, W * 0.18, W * 0.18, W * 0.18], it.hotels.map((h) => [h.city, h.hotel, h.distanceFromHaram, h.checkIn, h.checkOut]), 2);
+    // ── Payment schedule ──────────────────────────────────────────────────
+    const schedule = it.paymentSchedule.map((p) => [p.label, p.dueDate ? fmtDate(p.dueDate) : "", money(p.amount)]);
+    if (it.fullPaymentDueDate) schedule.push(["Full payment due", fmtDate(it.fullPaymentDueDate), money(it.totalPrice)]);
+    if (schedule.length) {
+      section("Payment schedule");
+      table([{ label: "Payment", width: W * 0.45 }, { label: "Due date", width: W * 0.3 }, { label: "Amount", width: W * 0.25, align: "right" }], schedule);
+    }
 
-    // ── Inclusions / exclusions (when the quote lists them) ───────────────
+    // ── Flights and hotels, when they were filled in ──────────────────────
+    if (it.flights.length) {
+      section("Flights");
+      const fw = [58, 58, 56, 56, 56, 54, 46, 44];
+      table(
+        [
+          { label: "Trip", width: fw[0]! },
+          { label: "From", width: fw[1]! },
+          { label: "Departs", width: fw[2]! },
+          { label: "To", width: fw[3]! },
+          { label: "Arrives", width: fw[4]! },
+          { label: "Airline", width: fw[5]! },
+          { label: "Hand bag", width: fw[6]! },
+          { label: "Bag", width: fw[7]! },
+          { label: "Zamzam", width: W - fw.reduce((a, b) => a + b, 0) },
+        ],
+        it.flights.map((f) => [f.tripType, f.departureCity, f.departureAt, f.arrivalCity, f.arrivalAt, f.airline, f.handCarry, f.checkInBaggage, f.zamzam]),
+      );
+    }
+    if (it.hotels.length) {
+      section("Hotels");
+      table(
+        [{ label: "City", width: W * 0.16 }, { label: "Hotel", width: W * 0.27 }, { label: "From Haram", width: W * 0.17 }, { label: "Check-in", width: W * 0.2 }, { label: "Check-out", width: W * 0.2 }],
+        it.hotels.map((h) => [h.city, h.hotel, h.distanceFromHaram, h.checkIn, h.checkOut]),
+      );
+    }
+
+    // ── Day by day ────────────────────────────────────────────────────────
+    if (it.days.length) {
+      section("Day by day");
+      table([{ label: "Day", width: 50 }, { label: "Title", width: 150 }, { label: "Details", width: W - 200 }], it.days.map((d) => [String(d.day), d.title, d.description]));
+    }
+
+    // ── Inclusions, exclusions and notes ──────────────────────────────────
     for (const [title, items] of [["Inclusions", it.inclusions], ["Exclusions", it.exclusions]] as const) {
       if (!items.length) continue;
-      heading(title);
-      font().fontSize(9).fillColor(INK);
-      for (const item of items) {
-        ensure(14);
-        doc.text(`•  ${item}`, M + 6, doc.y, { width: W - 12 });
-        doc.y += 1;
+      listTable(title, [...items]);
+    }
+    if (it.quoteNotes) listTable("Notes", [it.quoteNotes]);
+
+    // ── How to pay, and what we need ──────────────────────────────────────
+    const bank: [string, string | null][] = [["Beneficiary", profile.bank.beneficiary], ["Bank", profile.bank.bankName], ["Account no.", profile.bank.accountNo], ["IFSC", profile.bank.ifsc], ["Branch", profile.bank.branch]];
+    const bankRows = bank.filter(([, v]) => v) as [string, string][];
+    if (bankRows.length || profile.upiId || profile.documentsRequired.length) {
+      section("Payment details");
+      ensure(130);
+      const y0 = doc.y;
+      const bw = profile.upiId ? W * 0.55 : W;
+      let by = y0;
+      if (bankRows.length) {
+        const hh = SIZE + PAD * 2 + 2;
+        rect(M, by, bw, hh);
+        write("Bank transfer", M + PAD, by + PAD, { w: bw - PAD * 2, bold: true, oneLine: true });
+        by += hh;
+        for (const [k, v] of bankRows) {
+          const h = Math.max(heightOf(v, bw * 0.62 - PAD * 2), SIZE) + PAD * 2;
+          rect(M, by, bw, h);
+          vlines([M + bw * 0.38], by, h);
+          write(k, M + PAD, by + PAD, { w: bw * 0.38 - PAD * 2, color: GREY, oneLine: true });
+          write(v, M + bw * 0.38 + PAD, by + PAD, { w: bw * 0.62 - PAD * 2, bold: true });
+          by += h;
+        }
+      }
+      if (profile.upiId) {
+        const ux = M + (bankRows.length ? bw : 0);
+        const uw = W - (bankRows.length ? bw : 0);
+        const uh = Math.max(by - y0, 96);
+        rect(ux, y0, uw, uh);
+        const png = await QRCode.toBuffer(`upi://pay?pa=${encodeURIComponent(profile.upiId)}&pn=${encodeURIComponent(profile.name)}&cu=INR`, { margin: 1, width: 240 });
+        doc.image(png, ux + PAD + 2, y0 + PAD + 2, { width: 78 });
+        write("Pay by UPI", ux + PAD + 92, y0 + PAD + 2, { w: uw - 92 - PAD * 2, bold: true, oneLine: true });
+        write(profile.upiId, ux + PAD + 92, y0 + PAD + 20, { w: uw - 92 - PAD * 2, oneLine: true });
+        write("Scan with any UPI app", ux + PAD + 92, y0 + PAD + 38, { w: uw - 92 - PAD * 2, color: GREY });
+        by = Math.max(by, y0 + uh);
+      }
+      doc.y = by;
+      if (profile.documentsRequired.length) {
+        listTable("Documents required", profile.documentsRequired);
       }
     }
 
-    // ── Scan to pay ───────────────────────────────────────────────────────
-    ensure(96);
-    const sy = doc.y;
-    doc.roundedRect(M, sy, W, 84, 6).fillAndStroke(TINT, TINT_LINE);
-    if (profile.upiId) {
-      const png = await QRCode.toBuffer(`upi://pay?pa=${encodeURIComponent(profile.upiId)}&pn=${encodeURIComponent(profile.name)}&cu=INR`, { margin: 1, width: 240 });
-      doc.image(png, M + 12, sy + 8, { width: 68 });
-    }
-    font(true).fontSize(8).fillColor(PLUM).text("SCAN TO PAY", M + 96, sy + 22, { width: W * 0.45, characterSpacing: 1, lineBreak: false });
-    font(true).fontSize(9.5).fillColor(INK).text(profile.upiId ?? "UPI details not added yet", M + 96, sy + 36, { width: W * 0.45, lineBreak: false });
-    font().fontSize(8.5).fillColor(INK).text(profile.legalName ?? profile.name, M + 96, sy + 51, { width: W * 0.45, lineBreak: false });
-    font().fontSize(8).fillColor(MUTED).text("Pay with any UPI app on your phone", M + W * 0.55, sy + 36, { width: W * 0.45 - 12, align: "right", lineBreak: false });
-    doc.y = sy + 96;
-
-    // ── Bank details / documents required ────────────────────────────────
-    const bank: [string, string | null][] = [["Beneficiary Name", profile.bank.beneficiary], ["Bank Name", profile.bank.bankName], ["A/c No.", profile.bank.accountNo], ["Ifsc Code", profile.bank.ifsc], ["Branch", profile.bank.branch]];
-    const n = Math.max(bank.length, profile.documentsRequired.length);
-    ensure((n + 1) * 20 + 10);
-    const by = doc.y;
-    const hw = W / 2;
-    doc.rect(M, by, hw, 20).fill(PLUM);
-    doc.rect(M + hw, by, hw, 20).fill(PLUM);
-    font(true).fontSize(8).fillColor("#ffffff");
-    doc.text("BANK DETAILS", M, by + 7, { width: hw, align: "center", lineBreak: false }).text("DOCUMENTS REQUIRED", M + hw, by + 7, { width: hw, align: "center", lineBreak: false });
-    for (let i = 0; i < n; i++) {
-      const ry = by + 20 + i * 20;
-      cell(M, ry, hw * 0.4, 20, TINT);
-      cell(M + hw * 0.4, ry, hw * 0.6, 20);
-      cell(M + hw, ry, hw, 20);
-      if (bank[i]) {
-        font(true).fontSize(8.5).fillColor(INK).text(bank[i]![0], M + 8, ry + 6, { width: hw * 0.4 - 12, lineBreak: false });
-        font().fontSize(8.5).text(bank[i]![1] ?? "", M + hw * 0.4 + 8, ry + 6, { width: hw * 0.6 - 12, lineBreak: false, ellipsis: true });
-      }
-      if (profile.documentsRequired[i]) font().fontSize(8.5).fillColor(INK).text(profile.documentsRequired[i]!, M + hw + 8, ry + 6, { width: hw - 16, align: "center", lineBreak: false, ellipsis: true });
-    }
-    doc.y = by + 20 + n * 20 + 8;
-
-    // ── Terms & conditions ────────────────────────────────────────────────
+    // ── Terms ─────────────────────────────────────────────────────────────
     if (it.terms) {
-      ensure(60);
-      doc.y += 6;
-      font(true).fontSize(11).fillColor(PLUM).text("Terms & Conditions :-", M, doc.y, { width: W, align: "center" });
-      doc.rect(M + W / 2 - 24, doc.y + 2, 48, 2).fill(GOLD);
-      doc.y += 12;
+      section("Terms & conditions");
       for (const t of it.terms.split("\n").map((l) => l.trim()).filter(Boolean)) {
         const isTitle = /^\d+\.\s+\S/.test(t) && t.length < 70;
-        ensure(isTitle ? 30 : 16);
-        if (isTitle) {
-          doc.y += 3;
-          font(true).fontSize(8.5).fillColor(PLUM).text(t, M + 4, doc.y, { width: W - 8 });
-        } else font().fontSize(8).fillColor(INK).text(t, M + 14, doc.y, { width: W - 20, align: "justify" });
+        const h = heightOf(t, W, isTitle) + (isTitle ? 8 : 2);
+        ensure(h);
+        if (isTitle) doc.y += 6;
+        write(t, M, doc.y, { w: W, bold: isTitle, color: isTitle ? BLACK : GREY });
+        doc.y += isTitle ? 2 : 2;
       }
     }
-
-    // ── Sign-off ──────────────────────────────────────────────────────────
-    ensure(50);
-    doc.y += 14;
-    if (profile.address) font(true).fontSize(8.5).fillColor(INK).text(`Office Address :- ${profile.address.replace(/\n/g, ", ")}`, M, doc.y, { width: W, align: "center" });
-    doc.y += 8;
-    font().fontSize(8.5).fillColor(MUTED).text("This is computer generated quotation, no need for signature.", M, doc.y, { width: W, align: "center" });
 
     // ── Page footer ───────────────────────────────────────────────────────
     const range = doc.bufferedPageRange();
@@ -415,13 +429,12 @@ export class QuotationPdfService {
       doc.switchToPage(range.start + i);
       // The footer sits inside the bottom margin; without this pdfkit would start a new page for it.
       doc.page.margins.bottom = 0;
-      doc.rect(0, doc.page.height - 32, doc.page.width, 32).fill(PLUM_DARK);
-      doc.rect(0, doc.page.height - 32, doc.page.width, 2).fill(GOLD);
-      font().fontSize(7.5).fillColor("#e6c1d8").text(`${profile.name}  ·  ${it.refNo}`, M, doc.page.height - 20, { width: W - 60, lineBreak: false });
-      font(true).text(`${i + 1} / ${range.count}`, M + W - 50, doc.page.height - 20, { width: 50, align: "right", lineBreak: false });
+      doc.moveTo(M, doc.page.height - 40).lineTo(M + W, doc.page.height - 40).lineWidth(0.6).strokeColor(GREY).stroke();
+      write(`${profile.name}  ·  ${it.refNo}  ·  Computer-generated, no signature needed`, M, doc.page.height - 30, { w: W - 90, color: GREY, oneLine: true });
+      write(`Page ${i + 1} of ${range.count}`, M + W - 90, doc.page.height - 30, { w: 90, align: "right", color: GREY, oneLine: true });
     }
 
     doc.end();
-    return { fileName: `${it.refNo}.pdf`, data: await done };
+    return { fileName: `${it.refNo}${breakup ? "" : "-package-price"}.pdf`, data: await done };
   }
 }

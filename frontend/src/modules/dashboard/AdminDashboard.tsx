@@ -42,6 +42,7 @@ import { cn } from "@/core/ui/cn";
 import { Card } from "@/core/ui/layout";
 import { FullPageSpinner } from "@/core/ui/Spinner";
 import { useAdminDashboard } from "./api";
+import { PipelineBoxes } from "./PipelineBoxes";
 
 const REPORT_ICONS: Record<ReportName, LucideIcon> = {
   sales: TrendingUp,
@@ -246,6 +247,8 @@ export function AdminDashboard() {
           </>
         )}
       </section>
+
+      <PipelineBoxes />
 
       <div className="grid items-start gap-4 lg:grid-cols-[1fr_20rem]">
         <div className="space-y-4">

@@ -12,14 +12,17 @@ import { SettingsService } from "../../../core/settings/settings.service";
 import { ActivitiesService } from "../../activities/domain/activities.service";
 
 export interface IntakeResult {
-  leadId: string;
+  /** A repeat contact is added to the lead already being worked; anything new is a raw enquiry for the admin to assign. */
+  kind: "lead" | "enquiry";
+  id: string;
   refNo: string;
   outcome: "created" | "appended" | "duplicate_event";
 }
 
 /**
- * Turns inbound enquiries (website today; WhatsApp / Instagram in Phase 4) into leads — PROJECT_PLAN §11.1:
- * store raw event → match customer → append to an open lead or create one → assign → notify.
+ * Turns inbound enquiries (website today; WhatsApp / Instagram in Phase 4) into raw Enquiry records: store raw event →
+ * append to the lead or enquiry already open for this phone number, or create an Enquiry → notify. Nobody has spoken to
+ * them yet, so there are no requirements; the admin assigns it, the rep calls and converts it into a Lead.
  */
 @Injectable()
 export class LeadIntakeService {
@@ -51,14 +54,16 @@ export class LeadIntakeService {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         const existing = await this.prisma.inboundEvent.findUnique({ where: { channel_externalId: { channel: "WEBSITE", externalId } } });
         const lead = existing?.leadId ? await this.prisma.lead.findUnique({ where: { id: existing.leadId } }) : null;
-        if (lead) return { leadId: lead.id, refNo: lead.refNo, outcome: "duplicate_event" };
+        if (lead) return { kind: "lead", id: lead.id, refNo: lead.refNo, outcome: "duplicate_event" };
+        const enquiry = existing?.enquiryId ? await this.prisma.enquiry.findUnique({ where: { id: existing.enquiryId } }) : null;
+        if (enquiry) return { kind: "enquiry", id: enquiry.id, refNo: enquiry.refNo, outcome: "duplicate_event" };
       }
       throw error;
     }
 
     try {
       const result = await this.process(enquiry, "WEBSITE", this.describeSource(enquiry));
-      await this.prisma.inboundEvent.update({ where: { id: event.id }, data: { status: "PROCESSED", processedAt: new Date(), leadId: result.leadId } });
+      await this.prisma.inboundEvent.update({ where: { id: event.id }, data: { status: "PROCESSED", processedAt: new Date(), ...this.eventLink(result) } });
       return result;
     } catch (error) {
       await this.prisma.inboundEvent.update({ where: { id: event.id }, data: { status: "FAILED", error: error instanceof Error ? error.message.slice(0, 1000) : String(error) } });
@@ -76,7 +81,7 @@ export class LeadIntakeService {
     }
     try {
       const result = await this.process(parsed.data, "WEBSITE", this.describeSource(parsed.data));
-      await this.prisma.inboundEvent.update({ where: { id: event.id }, data: { status: "PROCESSED", processedAt: new Date(), leadId: result.leadId, error: null } });
+      await this.prisma.inboundEvent.update({ where: { id: event.id }, data: { status: "PROCESSED", processedAt: new Date(), ...this.eventLink(result), error: null } });
       return result;
     } catch (error) {
       await this.prisma.inboundEvent.update({ where: { id: event.id }, data: { status: "FAILED", error: error instanceof Error ? error.message.slice(0, 1000) : String(error) } });
@@ -113,44 +118,58 @@ export class LeadIntakeService {
         await tx.lead.update({ where: { id: openLead.id }, data: { priority: "HOT", nextFollowUpAt: new Date() } });
       });
       await this.notifyOwner(openLead.ownerId, openLead.refNo, enquiry.contactName, "repeat");
-      return { leadId: openLead.id, refNo: openLead.refNo, outcome: "appended" };
+      return { kind: "lead", id: openLead.id, refNo: openLead.refNo, outcome: "appended" };
     }
 
-    const lead = await this.prisma.$transaction(async (tx) => {
+    // Someone who enquired and hasn't been called yet doesn't get a second record — their message is added to the first.
+    const openEnquiry = await this.prisma.enquiry.findFirst({ where: { phone: enquiry.phone, createdAt: { gte: since } }, orderBy: { createdAt: "desc" } });
+    if (openEnquiry) {
+      const stamp = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }).format(new Date());
+      await this.prisma.enquiry.update({ where: { id: openEnquiry.id }, data: { message: [openEnquiry.message, `[${stamp}] ${this.messageOf(enquiry)}`].filter(Boolean).join("\n\n") } });
+      await this.notifyOwner(openEnquiry.ownerId, openEnquiry.refNo, enquiry.contactName, "repeat");
+      return { kind: "enquiry", id: openEnquiry.id, refNo: openEnquiry.refNo, outcome: "appended" };
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
       const ownerId = await this.nextOwner(tx);
-      const created = await tx.lead.create({
+      const row = await tx.enquiry.create({
         data: {
-          refNo: await this.sequences.next("lead", tx),
-          customerId: customer?.id ?? null,
+          refNo: await this.sequences.next("enquiry", tx),
           contactName: enquiry.contactName,
           phone: enquiry.phone,
           email: enquiry.email,
           source,
           sourceDetail,
+          message: `${this.messageOf(enquiry)}\n\n${summary}`,
           attribution: { ...enquiry.attribution, packageSlug: enquiry.packageSlug, serviceSlug: enquiry.serviceSlug, preferredContact: enquiry.preferredContact, consentAt: enquiry.consent.at } as Prisma.InputJsonValue,
-          productType,
-          destination: enquiry.destination,
-          travelFrom: fromDateOnly(enquiry.travelFrom),
-          travelTo: fromDateOnly(enquiry.travelTo),
-          flexibleDates: !enquiry.travelFrom,
-          adults: enquiry.adults ?? 1,
-          children: enquiry.children ?? 0,
-          infants: enquiry.infants ?? 0,
-          requirements: [enquiry.requirements, enquiry.travelMonth && `Travel month: ${enquiry.travelMonth}`, enquiry.budget && `Budget: ${enquiry.budget}`, enquiry.servicesRequired.length ? `Services: ${enquiry.servicesRequired.join(", ")}` : null, enquiry.whatsapp && enquiry.whatsapp !== enquiry.phone ? `WhatsApp: ${enquiry.whatsapp}` : null]
-            .filter(Boolean)
-            .join("\n") || null,
-          priority: "WARM",
           ownerId,
-          nextFollowUpAt: new Date(),
+          assignedAt: ownerId ? new Date() : null,
         },
       });
-      await this.activities.record({ entityType: "LEAD", entityId: created.id, customerId: created.customerId, type: "SYSTEM", body: `Enquiry received from ${sourceDetail}\n${summary}` }, tx);
-      await this.audit.record({ action: "lead.intake", entityType: "Lead", entityId: created.id, after: { source, sourceDetail } }, tx);
-      return created;
+      await this.audit.record({ action: "enquiry.intake", entityType: "Enquiry", entityId: row.id, after: { source, sourceDetail } }, tx);
+      return row;
     });
 
-    await this.notifyOwner(lead.ownerId, lead.refNo, enquiry.contactName, "new");
-    return { leadId: lead.id, refNo: lead.refNo, outcome: "created" };
+    await this.notifyOwner(created.ownerId, created.refNo, enquiry.contactName, "new");
+    return { kind: "enquiry", id: created.id, refNo: created.refNo, outcome: "created" };
+  }
+
+  private eventLink(result: IntakeResult) {
+    return result.kind === "lead" ? { leadId: result.id } : { enquiryId: result.id };
+  }
+
+  /** What the person actually wrote, plus the details the form collected, as one block of text for the rep to read. */
+  private messageOf(enquiry: PublicEnquiry) {
+    return [
+      enquiry.requirements,
+      enquiry.destination && `Destination: ${enquiry.destination}`,
+      enquiry.travelMonth && `Travel month: ${enquiry.travelMonth}`,
+      enquiry.budget && `Budget: ${enquiry.budget}`,
+      enquiry.servicesRequired.length ? `Services: ${enquiry.servicesRequired.join(", ")}` : null,
+      enquiry.whatsapp && enquiry.whatsapp !== enquiry.phone ? `WhatsApp: ${enquiry.whatsapp}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
 
   /** Round-robin across active sales agents when enabled in settings; otherwise leave unassigned. */

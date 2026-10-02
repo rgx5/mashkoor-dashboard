@@ -15,10 +15,10 @@ import {
   type LeadDetail,
   type LeadStage,
 } from "@mashkoor/shared";
-import { AlertTriangle, CalendarRange, Check, Mail, MessageCircle, Pencil, Phone, UserPlus, UserRoundCheck } from "lucide-react";
+import { AlertTriangle, CalendarRange, Check, Landmark, Lock, Mail, MessageCircle, Pencil, Phone, ReceiptText, UserPlus, UserRoundCheck } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import type { z } from "zod";
 import { ApiError } from "@/core/api/client";
@@ -36,8 +36,9 @@ import { FullPageSpinner } from "@/core/ui/Spinner";
 import { Timeline } from "@/modules/activities";
 import { DuplicateNotice, type DuplicateMatch } from "@/modules/customers";
 import { TasksPanel } from "@/modules/tasks";
+import { useCreateInvoice } from "@/modules/invoices";
 import { StaffSelect } from "@/modules/users";
-import { useAssignLead, useConvertLead, useLead, useUpdateLead } from "../api";
+import { useAssignAccountant, useAssignLead, useConvertLead, useLead, useUpdateLead } from "../api";
 import { StageChangeDialog, type PendingStageChange } from "../StageChangeDialog";
 
 const PATH: LeadStage[] = [...OPEN_LEAD_STAGES, "WON"];
@@ -65,11 +66,21 @@ export function LeadDetailPage() {
     );
 
   const closed = lead.stage === "WON" || lead.stage === "LOST";
+  // Once accounts has the lead, the sales rep who brought it in can follow it but no longer change it.
+  const withAccounts = Boolean(lead.accountant) && !ability.can("assign", "Lead");
+  const readOnly = !ability.can("update", "Lead") || withAccounts;
   const move = (to: LeadStage) => setPending({ leadId: lead.id, refNo: lead.refNo, from: lead.stage, to });
 
   return (
     <>
       <BackLink to="/admin/leads">Leads</BackLink>
+
+      {readOnly && (
+        <p className="mb-4 flex items-center gap-2 rounded-lg bg-gold-50 px-4 py-3 text-sm text-gold-700">
+          <Lock className="h-4 w-4 shrink-0" aria-hidden />
+          {lead.accountant ? `This lead is with accounts (${lead.accountant.name}), so it is read-only. You can still follow its progress here.` : "You can view this lead but not change it."}
+        </p>
+      )}
 
       {/* Header */}
       <Card className="mb-6 p-5 sm:p-6">
@@ -99,7 +110,12 @@ export function LeadDetailPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {ability.can("create", "Itinerary") && (
+            {lead.quotation && ability.can("read", "Itinerary") && (
+              <Link to={`/admin/itineraries/${lead.quotation.id}`} className={buttonClass("secondary", "sm")}>
+                <CalendarRange className="h-4 w-4" aria-hidden /> Quotation {lead.quotation.refNo}
+              </Link>
+            )}
+            {!readOnly && !lead.quotation && !closed && ability.can("create", "Itinerary") && (
               <Link
                 to={`/admin/itineraries/new?${new URLSearchParams({
                   leadId: lead.id,
@@ -112,15 +128,15 @@ export function LeadDetailPage() {
                 }).toString()}`}
                 className={buttonClass("secondary", "sm")}
               >
-                <CalendarRange className="h-4 w-4" aria-hidden /> Create itinerary
+                <CalendarRange className="h-4 w-4" aria-hidden /> Create quotation
               </Link>
             )}
-            {!closed && (
+            {!readOnly && !closed && (
               <Button variant="danger" size="sm" onClick={() => move("LOST")}>
                 Mark lost
               </Button>
             )}
-            {closed && (
+            {!readOnly && closed && (
               <Button variant="secondary" size="sm" onClick={() => move("CONTACTED")}>
                 Reopen
               </Button>
@@ -138,7 +154,7 @@ export function LeadDetailPage() {
               <li key={stage}>
                 <button
                   type="button"
-                  disabled={current}
+                  disabled={current || readOnly}
                   onClick={() => move(stage)}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs font-semibold transition",
@@ -161,9 +177,11 @@ export function LeadDetailPage() {
           <Card className="p-5">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-base font-semibold">Travel requirements</h2>
-              <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>
-                <Pencil className="h-4 w-4" aria-hidden /> Edit
-              </Button>
+              {!readOnly && (
+                <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>
+                  <Pencil className="h-4 w-4" aria-hidden /> Edit
+                </Button>
+              )}
             </div>
             <DetailList
               items={[
@@ -187,6 +205,7 @@ export function LeadDetailPage() {
         </div>
 
         <aside className="space-y-6">
+          <PaymentCard lead={lead} />
           <OwnerCard lead={lead} />
           <CustomerCard lead={lead} />
           <TasksPanel leadId={lead.id} defaultTitle={`Follow up with ${lead.contactName.split(" ")[0]}`} />
@@ -213,6 +232,104 @@ export function LeadDetailPage() {
       <StageChangeDialog pending={pending} onClose={() => setPending(null)} />
       <EditLeadDialog lead={lead} open={editOpen} onClose={() => setEditOpen(false)} />
     </>
+  );
+}
+
+/** Payment hand-off: super admin picks the accountant; the accountant raises the invoice and records payments. */
+function PaymentCard({ lead }: { lead: LeadDetail }) {
+  const ability = useAbility("admin");
+  const assign = useAssignAccountant();
+  const [invoicing, setInvoicing] = useState(false);
+  const atPayment = lead.stage === "WAITING_PAYMENT";
+  if (!atPayment && !lead.accountant && !lead.booking && !lead.invoice) return null;
+
+  const canAssign = ability.can("assign", "Lead");
+  const canInvoice = ability.can("create", "Invoice");
+
+  return (
+    <Card className="p-5">
+      <h2 className="mb-3 flex items-center gap-2 text-base font-semibold">
+        <Landmark className="h-4 w-4 text-plum-600" aria-hidden /> Payment & accounts
+      </h2>
+      {atPayment && canAssign ? (
+        <>
+          <StaffSelect
+            roles={["ACCOUNTS", "SUPER_ADMIN"]}
+            emptyLabel="Assign an accountant…"
+            aria-label="Accountant"
+            value={lead.accountant?.id ?? ""}
+            disabled={assign.isPending}
+            onChange={(e) => withToast(assign.mutateAsync({ id: lead.id, accountantId: e.target.value || null }), e.target.value ? "Handed to accounts" : "Taken back from accounts")}
+          />
+          <p className="mt-2 text-xs text-ink-500">The accepted quotation becomes a booking and the accountant takes it from here. The sales rep keeps read-only access.</p>
+        </>
+      ) : lead.accountant ? (
+        <p className="text-sm">
+          Accountant: <span className="font-semibold">{lead.accountant.name}</span>
+        </p>
+      ) : atPayment ? (
+        <p className="text-sm text-ink-500">Waiting for super admin to assign an accountant.</p>
+      ) : null}
+
+      <div className="mt-3 space-y-2 text-sm">
+        {lead.booking && (
+          <Link to={`/admin/bookings/${lead.booking.id}`} className="block text-plum-700 hover:underline">
+            Booking {lead.booking.refNo}
+          </Link>
+        )}
+        {lead.invoice ? (
+          <Link to={`/admin/invoices/${lead.invoice.id}`} className="block font-semibold text-plum-700 hover:underline">
+            Invoice {lead.invoice.refNo}
+          </Link>
+        ) : (
+          lead.booking &&
+          canInvoice && (
+            <Button size="sm" className="w-full" onClick={() => setInvoicing(true)}>
+              <ReceiptText className="h-4 w-4" aria-hidden /> Create invoice
+            </Button>
+          )
+        )}
+      </div>
+      {lead.booking && <CreateInvoiceDialog bookingId={lead.booking.id} open={invoicing} onClose={() => setInvoicing(false)} />}
+    </Card>
+  );
+}
+
+function CreateInvoiceDialog({ bookingId, open, onClose }: { bookingId: string; open: boolean; onClose: () => void }) {
+  const navigate = useNavigate();
+  const create = useCreateInvoice();
+  const [dueDate, setDueDate] = useState("");
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null);
+    try {
+      const invoice = await create.mutateAsync({ bookingId, dueDate: dueDate || null, notes: notes || null });
+      toast.success(`Invoice ${invoice.refNo} created`);
+      onClose();
+      navigate(`/admin/invoices/${invoice.id}`);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Create invoice" description="The lines and total are copied from the accepted quotation.">
+      <div className="space-y-4">
+        <FormError message={error} />
+        <TextField label="Due by" type="date" hint="Optional" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        <TextareaField label="Note on the invoice" hint="Optional" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={submit} loading={create.isPending}>
+            Create invoice
+          </Button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 
@@ -375,7 +492,7 @@ function EditLeadForm({ lead, onDone }: { lead: LeadDetail; onDone: () => void }
         <TextField label="Infants" type="number" min={0} {...register("infants")} />
         <TextField label="Budget from (₹)" type="number" min={0} error={formState.errors.budgetMin?.message} {...register("budgetMin", { setValueAs: numberOrNull })} />
         <TextField label="Budget to (₹)" type="number" min={0} error={formState.errors.budgetMax?.message} {...register("budgetMax", { setValueAs: numberOrNull })} />
-        <TextField label="Quoted (₹)" hint="What we told them, before an itinerary exists" type="number" min={0} error={formState.errors.quotedAmount?.message} {...register("quotedAmount", { setValueAs: numberOrNull })} />
+        <TextField label="Quoted (₹)" hint="What we told them, before a quotation exists" type="number" min={0} error={formState.errors.quotedAmount?.message} {...register("quotedAmount", { setValueAs: numberOrNull })} />
       </div>
       <TextareaField label="Requirements" rows={4} {...register("requirements")} />
       <div className="flex justify-end gap-2 pt-2">

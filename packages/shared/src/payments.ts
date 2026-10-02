@@ -32,6 +32,8 @@ const optionalText = (max: number) =>
 
 export const paymentInputSchema = z.object({
   bookingId: z.uuid(),
+  /** The invoice this payment is recorded against, when the accountant is working from one. */
+  invoiceId: z.uuid().nullable().optional(),
   direction: z.enum(PAYMENT_DIRECTIONS).default("COLLECTION"),
   method: z.enum(PAYMENT_METHODS),
   amount: z.coerce.number().int().min(1, "Enter an amount"),

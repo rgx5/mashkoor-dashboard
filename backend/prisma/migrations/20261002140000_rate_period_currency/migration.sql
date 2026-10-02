@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "RatePeriod" ADD COLUMN     "currency" TEXT NOT NULL DEFAULT 'INR',
+ADD COLUMN     "foreignAmount" DOUBLE PRECISION,
+ADD COLUMN     "fxRate" DOUBLE PRECISION;

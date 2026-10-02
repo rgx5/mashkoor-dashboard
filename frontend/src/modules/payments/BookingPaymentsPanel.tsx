@@ -215,7 +215,8 @@ function PaymentLinkDialog({ bookingId, balanceDue, open, onClose }: { bookingId
   );
 }
 
-function RecordPaymentDialog({ bookingId, open, onClose }: { bookingId: string; open: boolean; onClose: () => void }) {
+/** Logs money received or refunded. When opened from an invoice, the payment is recorded against that invoice. */
+export function RecordPaymentDialog({ bookingId, invoiceId, open, onClose }: { bookingId: string; invoiceId?: string; open: boolean; onClose: () => void }) {
   const record = useRecordPayment();
   const [direction, setDirection] = useState<"COLLECTION" | "REFUND">("COLLECTION");
   const [method, setMethod] = useState<(typeof MANUAL_PAYMENT_METHODS)[number]>("BANK_TRANSFER");
@@ -228,7 +229,7 @@ function RecordPaymentDialog({ bookingId, open, onClose }: { bookingId: string; 
   const submit = async () => {
     setError(null);
     try {
-      await record.mutateAsync({ bookingId, direction, method, amount: Number(amount), reference: reference || null, notes: notes || null });
+      await record.mutateAsync({ bookingId, invoiceId: invoiceId ?? null, direction, method, amount: Number(amount), reference: reference || null, notes: notes || null });
       toast.success("Payment recorded — it counts once verified");
       setAmount("");
       setReference("");

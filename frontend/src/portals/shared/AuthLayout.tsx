@@ -4,7 +4,7 @@ import { BrandName } from "@/core/ui/BrandName";
 const portalCopy = {
   admin: { eyebrow: "Mashkoor Tourism · Control Center", tagline: "Leads, bookings, partners and payments — in one place." },
   b2b: { eyebrow: "Mashkoor Partner Portal", tagline: "Book Hajj, Umrah and holidays for your customers at partner rates." },
-  b2c: { eyebrow: "My Mashkoor Trips", tagline: "Your bookings, itineraries and travel documents." },
+  b2c: { eyebrow: "My Mashkoor Trips", tagline: "Your bookings, quotations and travel documents." },
 } as const;
 
 export function AuthLayout({ portal, title, subtitle, children }: { portal: keyof typeof portalCopy; title: string; subtitle?: string; children: ReactNode }) {

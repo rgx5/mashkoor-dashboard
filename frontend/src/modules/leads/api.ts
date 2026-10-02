@@ -48,6 +48,7 @@ function useLeadMutation<TArgs, TResult>(fn: (args: TArgs) => Promise<TResult>) 
 export const useCreateLead = () => useLeadMutation((input: LeadInput) => admin.post<LeadDetail>("/leads", input));
 export const useUpdateLead = () => useLeadMutation(({ id, ...input }: Partial<LeadInput> & { id: string }) => admin.patch<LeadDetail>(`/leads/${id}`, input));
 export const useAssignLead = () => useLeadMutation(({ id, ownerId }: { id: string; ownerId: string | null }) => admin.post<LeadDetail>(`/leads/${id}/assign`, { ownerId }));
+export const useAssignAccountant = () => useLeadMutation(({ id, accountantId }: { id: string; accountantId: string | null }) => admin.post<LeadDetail>(`/leads/${id}/accountant`, { accountantId }));
 export const useConvertLead = () => useLeadMutation(({ id, customerId }: { id: string; customerId?: string }) => admin.post<LeadDetail>(`/leads/${id}/convert-customer`, { customerId }));
 export const useBulkUpdateLeads = () => useLeadMutation((input: { ids: string[]; ownerId?: string | null; priority?: LeadPriority }) => admin.post<{ updated: number }>("/leads/bulk", input));
 

@@ -45,8 +45,9 @@ export class AdminItinerariesController {
 
   @Get(":id/pdf")
   @CheckAbility("read", "Itinerary")
-  async pdf(@CurrentUser() actor: RequestUser, @Param("id", ParseUUIDPipe) id: string, @Res({ passthrough: true }) res: Response) {
-    const file = await this.quotations.render(actor, id);
+  async pdf(@CurrentUser() actor: RequestUser, @Param("id", ParseUUIDPipe) id: string, @Query("breakup") breakup: string | undefined, @Res({ passthrough: true }) res: Response) {
+    // `?breakup=false` prints one package price instead of a price against every item.
+    const file = await this.quotations.render(actor, id, breakup !== "false");
     res.set({ "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${file.fileName}"` });
     return new StreamableFile(file.data);
   }

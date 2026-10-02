@@ -36,15 +36,7 @@ export function TasksPage() {
 
   return (
     <>
-      <PageHeader
-        title="Tasks"
-        description="Follow-ups due today, overdue and coming up."
-        actions={
-          <Button onClick={() => setOpen(true)}>
-            <Plus className="h-4 w-4" aria-hidden /> New task
-          </Button>
-        }
-      />
+      <PageHeader title="Tasks" description="Follow-ups due today, overdue and coming up." />
       <Card>
         <div className="flex flex-col gap-3 px-4 pt-3 sm:flex-row sm:items-end sm:justify-between">
           <Tabs<DueTab>
@@ -58,9 +50,9 @@ export function TasksPage() {
               { value: "done", label: "Completed" },
             ]}
           />
-          {ability.can("manage", "Task") && (
-            <div className="pb-2 sm:w-64">
-              <select aria-label="Assignee" value={assignee} onChange={(e) => set("assignee", e.target.value)} className={inputClass}>
+          <div className="flex items-center gap-2 pb-2">
+            {ability.can("manage", "Task") && (
+              <select aria-label="Assignee" value={assignee} onChange={(e) => set("assignee", e.target.value)} className={`${inputClass} sm:w-56`}>
                 <option value="me">My tasks</option>
                 <option value="all">Everyone</option>
                 {staff.map((u) => (
@@ -69,8 +61,11 @@ export function TasksPage() {
                   </option>
                 ))}
               </select>
-            </div>
-          )}
+            )}
+            <Button onClick={() => setOpen(true)}>
+              <Plus className="h-4 w-4" aria-hidden /> New task
+            </Button>
+          </div>
         </div>
         <div className="border-t border-line px-4">
           <TaskList tasks={data?.data} loading={isLoading} emptyText={tab === "overdue" ? "Nothing overdue — nice work" : "No tasks here"} />

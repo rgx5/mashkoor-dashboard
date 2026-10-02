@@ -28,7 +28,7 @@ export class InboundEventsService {
   }
 
   private toRow(e: InboundEvent): InboundEventRow {
-    return { id: e.id, channel: e.channel, status: e.status, summary: this.summarize(e), error: e.error, leadId: e.leadId, createdAt: toIso(e.createdAt)!, processedAt: toIso(e.processedAt) };
+    return { id: e.id, channel: e.channel, status: e.status, summary: this.summarize(e), error: e.error, leadId: e.leadId, enquiryId: e.enquiryId, createdAt: toIso(e.createdAt)!, processedAt: toIso(e.processedAt) };
   }
 
   async list(actor: RequestUser, query: InboundEventListQuery): Promise<Paginated<InboundEventRow>> {

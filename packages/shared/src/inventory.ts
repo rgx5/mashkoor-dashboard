@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CABIN_CLASSES, MEAL_PLANS, type CabinClass, type MealPlan, type ProductType } from "./constants";
+import { CABIN_CLASSES, MEAL_PLANS, PRODUCT_TYPES, type CabinClass, type MealPlan, type ProductType } from "./constants";
 import { listQuerySchema } from "./pagination";
 import { patchOf } from "./patch";
 
@@ -85,16 +85,24 @@ export interface RoomTypeDetail extends RoomTypeRow {
 
 // ─── Rate periods (room availability) ───────────────────────────────────────
 
+const rateCurrency = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/).default("INR");
+
 export const ratePeriodInputSchema = z
   .object({
     roomTypeId: z.uuid(),
     startDate: dateOnly,
     endDate: dateOnly,
+    /** In rupees. For a foreign-currency rate the server works it out from `foreignAmount` and `fxRate`. */
     costPrice: money,
+    /** The currency the hotel quoted the rate in. */
+    currency: rateCurrency,
+    foreignAmount: z.coerce.number().min(0).nullable().optional(),
+    fxRate: z.coerce.number().positive().nullable().optional(),
     totalRooms: z.coerce.number().int().min(1).max(9999),
     notes: optionalText(500),
   })
-  .refine((v) => v.endDate > v.startDate, { path: ["endDate"], message: "End date must be after the start date" });
+  .refine((v) => v.endDate > v.startDate, { path: ["endDate"], message: "End date must be after the start date" })
+  .refine((v) => v.currency === "INR" || (v.foreignAmount != null && Boolean(v.fxRate)), { path: ["foreignAmount"], message: "Enter the rate in this currency" });
 export type RatePeriodInput = z.input<typeof ratePeriodInputSchema>;
 export type RatePeriodData = z.output<typeof ratePeriodInputSchema>;
 
@@ -103,6 +111,9 @@ export const ratePeriodUpdateSchema = patchOf(
     startDate: dateOnly,
     endDate: dateOnly,
     costPrice: money,
+    currency: rateCurrency,
+    foreignAmount: z.coerce.number().min(0).nullable(),
+    fxRate: z.coerce.number().positive().nullable(),
     totalRooms: z.coerce.number().int().min(1).max(9999),
     notes: optionalText(500),
   }),
@@ -114,8 +125,12 @@ export interface RatePeriodRow {
   roomTypeId: string;
   startDate: string;
   endDate: string;
-  /** Supplier cost. Null for staff who may not see it (sales agents). */
+  /** Supplier cost in rupees. Null for staff who may not see it (sales agents). */
   costPrice: number | null;
+  /** What the hotel quoted, when that wasn't rupees. Hidden together with the cost. */
+  currency: string;
+  foreignAmount: number | null;
+  fxRate: number | null;
   totalRooms: number;
   bookedRooms: number;
   available: number;
@@ -198,6 +213,10 @@ export const inventorySearchQuerySchema = z.object({
   to: z.iso.date().optional(),
 });
 export type InventorySearchQuery = z.output<typeof inventorySearchQuerySchema>;
+
+/** Searching inventory from a quotation: the same filters, plus the product type so the customer price can be worked out. */
+export const quoteInventorySearchQuerySchema = inventorySearchQuerySchema.extend({ productType: z.enum(PRODUCT_TYPES).default("HOLIDAY") });
+export type QuoteInventorySearchQuery = z.input<typeof quoteInventorySearchQuerySchema>;
 
 /** B2B search across both kinds of inventory — the agency's price, never Mashkoor's cost. */
 export interface B2BInventorySearchQuery {

@@ -83,6 +83,40 @@ export async function request<T>(portal: Portal, path: string, options: RequestO
   return parse<T>(res);
 }
 
+/**
+ * Fetches a file (a PDF, say) with the same login handling as every other request: the access token is attached, an expired
+ * one is refreshed and the request retried, and a failure carries the server's own message instead of a generic one.
+ */
+export async function download(portal: Portal, path: string, query: RequestOptions["query"] = {}): Promise<Blob> {
+  const url = new URL(path, window.location.origin);
+  for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
+
+  const send = () => {
+    const token = sessionStore.get(portal).accessToken;
+    return fetch(url, { credentials: "same-origin", headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  };
+
+  let res: Response;
+  try {
+    res = await send();
+    if (res.status === 401 && sessionStore.get(portal).accessToken && (await refreshSession(portal))) res = await send();
+  } catch {
+    throw new ApiError(0, "NETWORK", "Couldn't reach the server. Please try again in a moment.");
+  }
+  if (!res.ok) await parse<never>(res);
+  return res.blob();
+}
+
+/** Hands a downloaded file to the browser's save dialog. */
+export function saveFile(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /** Portal-scoped client: `api("admin").get("/users")` → GET /api/v1/admin/users */
 export const api = (portal: Portal) => {
   const base = `/api/v1/${portal}`;

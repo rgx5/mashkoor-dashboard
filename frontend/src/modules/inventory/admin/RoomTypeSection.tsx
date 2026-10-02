@@ -1,16 +1,17 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { MEAL_PLAN_LABELS, ratePeriodInputSchema, type RoomTypeRow } from "@mashkoor/shared";
+import { BASE_CURRENCY, MEAL_PLAN_LABELS, ratePeriodInputSchema, type RoomTypeRow } from "@mashkoor/shared";
 import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import type { z } from "zod";
 import { applyApiErrors, withToast } from "@/core/api/errors";
 import { formatDate, formatINR } from "@/core/format";
+import { useCurrencies } from "@/modules/currencies";
 import { Button } from "@/core/ui/Button";
 import { cn } from "@/core/ui/cn";
 import { Dialog } from "@/core/ui/Dialog";
-import { FormError, TextField } from "@/core/ui/form";
+import { FormError, SelectField, TextField } from "@/core/ui/form";
 import { Badge } from "@/core/ui/layout";
 import { useCreateRatePeriod, useDeleteRatePeriod, useHotel } from "../api";
 
@@ -55,7 +56,14 @@ export function RoomTypeSection({ roomType }: { roomType: RoomTypeRow }) {
                 <td className="py-1.5 pr-3">
                   {formatDate(p.startDate)} – {formatDate(p.endDate)}
                 </td>
-                <td className="py-1.5 pr-3">{formatINR(p.costPrice)}</td>
+                <td className="py-1.5 pr-3">
+                  {formatINR(p.costPrice)}
+                  {p.currency !== BASE_CURRENCY && p.foreignAmount != null && (
+                    <span className="block text-[11px] text-ink-500">
+                      {p.currency} {p.foreignAmount.toLocaleString("en-IN")} @ ₹{p.fxRate}
+                    </span>
+                  )}
+                </td>
                 <td className="py-1.5 pr-3">{p.totalRooms}</td>
                 <td className="py-1.5 pr-3">
                   <Badge tone={p.available > 0 ? "green" : "red"}>{p.available}</Badge>
@@ -86,10 +94,20 @@ export function RoomTypeSection({ roomType }: { roomType: RoomTypeRow }) {
 function RatePeriodForm({ roomTypeId, onDone }: { roomTypeId: string; onDone: () => void }) {
   const create = useCreateRatePeriod();
   const [formError, setFormError] = useState<string | null>(null);
-  const { register, handleSubmit, setError, formState } = useForm<FormIn, unknown, FormOut>({
+  const { data: currencies = [] } = useCurrencies();
+  const { register, handleSubmit, setError, setValue, watch, formState } = useForm<FormIn, unknown, FormOut>({
     resolver: zodResolver(ratePeriodInputSchema),
-    defaultValues: { roomTypeId, totalRooms: 1 },
+    defaultValues: { roomTypeId, totalRooms: 1, currency: BASE_CURRENCY },
   });
+  const currency = watch("currency") ?? BASE_CURRENCY;
+  const foreign = currency !== BASE_CURRENCY;
+  const foreignAmount = watch("foreignAmount");
+  const fxRate = watch("fxRate");
+
+  // A rate quoted in another currency fills in the rupee cost (the figure bookings and prices use), rounded to a whole rupee.
+  useEffect(() => {
+    if (foreign) setValue("costPrice", foreignAmount != null && fxRate ? Math.round(Number(foreignAmount) * Number(fxRate)) : 0);
+  }, [foreign, foreignAmount, fxRate, setValue]);
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
@@ -108,8 +126,37 @@ function RatePeriodForm({ roomTypeId, onDone }: { roomTypeId: string; onDone: ()
       <div className="grid grid-cols-2 gap-4">
         <TextField label="Start date" type="date" required autoFocus error={formState.errors.startDate?.message} {...register("startDate")} />
         <TextField label="End date" type="date" required error={formState.errors.endDate?.message} {...register("endDate")} />
-        <TextField label="Cost per room/night (₹)" type="number" min={0} required error={formState.errors.costPrice?.message} {...register("costPrice")} />
+        <SelectField
+          label="Rate currency"
+          {...register("currency", {
+            onChange: (e) => {
+              const code = e.target.value as string;
+              setValue("foreignAmount", null);
+              setValue("fxRate", code === BASE_CURRENCY ? null : (currencies.find((c) => c.code === code)?.rateToInr ?? null));
+            },
+          })}
+        >
+          <option value={BASE_CURRENCY}>{BASE_CURRENCY} — Indian Rupee</option>
+          {currencies
+            .filter((c) => c.code !== BASE_CURRENCY)
+            .map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.code} — {c.name}
+              </option>
+            ))}
+        </SelectField>
         <TextField label="Total rooms" type="number" min={1} required error={formState.errors.totalRooms?.message} {...register("totalRooms")} />
+        {foreign ? (
+          <>
+            <TextField label={`Rate per room/night (${currency})`} type="number" min={0} step="0.01" required error={formState.errors.foreignAmount?.message} {...register("foreignAmount")} />
+            <TextField label={`Rate (₹ per ${currency})`} type="number" min={0} step="0.0001" required error={formState.errors.fxRate?.message} {...register("fxRate")} />
+            <p className="col-span-2 rounded-lg bg-surface px-3 py-2 text-sm text-ink-700">
+              Cost per room/night in rupees: <span className="font-semibold">{formatINR(Number(watch("costPrice")) || 0)}</span>
+            </p>
+          </>
+        ) : (
+          <TextField label="Cost per room/night (₹)" type="number" min={0} required error={formState.errors.costPrice?.message} {...register("costPrice")} />
+        )}
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="secondary" onClick={onDone}>

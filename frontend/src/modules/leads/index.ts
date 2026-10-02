@@ -1,7 +1,8 @@
 import { Target } from "lucide-react";
 import type { AppModule } from "@/core/modules/types";
 
-export { useLeads } from "./api";
+export { useAssignAccountant, useLeadBoard, useLeads } from "./api";
+export { StageChangeDialog, type PendingStageChange } from "./StageChangeDialog";
 
 /** M02 · Leads & pipeline — admin and B2B (enquiries to Mashkoor) slices. */
 export const leadsModule: AppModule = {

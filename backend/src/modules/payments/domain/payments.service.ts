@@ -84,6 +84,11 @@ export class PaymentsService {
     const booking = await this.prisma.booking.findUnique({ where: { id: input.bookingId } });
     if (!booking) throw AppError.notFound("Booking");
     if (!this.abilities.forUser(actor).can("collect", subject("Booking", booking))) throw AppError.forbidden();
+    if (input.invoiceId) {
+      const invoice = await this.prisma.invoice.findUnique({ where: { id: input.invoiceId }, select: { bookingId: true, status: true } });
+      if (!invoice || invoice.bookingId !== input.bookingId) throw AppError.conflict("That invoice does not belong to this booking");
+      if (invoice.status === "CANCELLED") throw AppError.conflict("That invoice has been cancelled");
+    }
 
     const created = await this.prisma.$transaction(async (tx) => {
       const payment = await tx.payment.create({
@@ -103,7 +108,25 @@ export class PaymentsService {
     const updated = await this.prisma.payment.update({ where: { id }, data: { status: "VERIFIED", verifiedById: actor.id, verifiedAt: new Date() }, include });
     await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "payment.verified", entityType: "Payment", entityId: id });
     await this.sendReceipt(id);
+    await this.closeLeadIfInvoicePaid(updated.invoiceId);
     return toRow(updated, await this.users([updated]));
+  }
+
+  /** When the last verified payment settles an invoice, the lead it came from is won. */
+  private async closeLeadIfInvoicePaid(invoiceId: string | null) {
+    if (!invoiceId) return;
+    const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId }, include: { payments: { where: { status: "VERIFIED" }, select: { amount: true, direction: true } } } });
+    if (!invoice || invoice.status !== "ISSUED" || !invoice.leadId) return;
+    const paid = invoice.payments.reduce((sum, p) => sum + (p.direction === "COLLECTION" ? p.amount : -p.amount), 0);
+    if (paid < invoice.total) return;
+    const lead = await this.prisma.lead.findUnique({ where: { id: invoice.leadId } });
+    if (!lead || lead.stage !== "WAITING_PAYMENT" || !lead.customerId) return;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.lead.update({ where: { id: lead.id }, data: { stage: "WON", stageChangedAt: new Date(), nextFollowUpAt: null, wonBookingId: invoice.bookingId } });
+      await tx.activity.create({
+        data: { entityType: "LEAD", entityId: lead.id, leadId: lead.id, customerId: lead.customerId, type: "STAGE_CHANGE", body: `Awaiting payment → Won (invoice ${invoice.refNo} paid in full)`, meta: { from: "WAITING_PAYMENT", to: "WON", invoiceId: invoice.id } },
+      });
+    });
   }
 
   async reject(actor: RequestUser, id: string, reason: string): Promise<PaymentRow> {

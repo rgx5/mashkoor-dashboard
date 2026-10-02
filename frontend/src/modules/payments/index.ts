@@ -1,7 +1,8 @@
 import { CreditCard } from "lucide-react";
 import type { AppModule } from "@/core/modules/types";
 
-export { BookingPaymentsPanel } from "./BookingPaymentsPanel";
+export { BookingPaymentsPanel, RecordPaymentDialog } from "./BookingPaymentsPanel";
+export { useRejectPayment, useVerifyPayment } from "./api";
 
 /** M11 · Payments — offline collections register (no gateway wired up yet). */
 export const paymentsModule: AppModule = {

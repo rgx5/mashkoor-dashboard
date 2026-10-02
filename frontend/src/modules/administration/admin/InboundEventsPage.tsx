@@ -55,7 +55,7 @@ export function InboundEventsPage() {
       ),
     },
     { key: "status", header: "Status", cell: (e) => <Badge tone={tone(e.status)}>{e.status.charAt(0) + e.status.slice(1).toLowerCase()}</Badge> },
-    { key: "lead", header: "Lead", cell: (e) => (e.leadId ? <Link to={`/admin/leads/${e.leadId}`} className="font-semibold text-plum-700 hover:underline">Open</Link> : <span className="text-ink-300">—</span>) },
+    { key: "lead", header: "Lead / enquiry", cell: (e) => (e.leadId ? <Link to={`/admin/leads/${e.leadId}`} className="font-semibold text-plum-700 hover:underline">Open lead</Link> : e.enquiryId ? <Link to="/admin/enquiries" className="font-semibold text-plum-700 hover:underline">Enquiry</Link> : <span className="text-ink-300">—</span>) },
     {
       key: "actions",
       header: "",

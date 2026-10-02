@@ -30,7 +30,7 @@ export function SharedItineraryPage() {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center px-6 text-center">
         <ShieldAlert className="h-10 w-10 text-red-500" aria-hidden />
-        <h1 className="mt-3 text-lg font-semibold">This itinerary isn't available</h1>
+        <h1 className="mt-3 text-lg font-semibold">This quotation isn't available</h1>
         <p className="mt-1 max-w-sm text-sm text-ink-500">{errorMessage(error, "The link may have been withdrawn. Please contact your travel consultant.")}</p>
       </div>
     );
@@ -165,7 +165,7 @@ export function SharedItineraryPage() {
             <div className="flex items-start gap-3">
               <CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-600" aria-hidden />
               <div>
-                <h2 className="text-base font-semibold">You've accepted this itinerary</h2>
+                <h2 className="text-base font-semibold">You've accepted this quotation</h2>
                 <p className="mt-1 text-sm text-ink-500">Our team will be in touch to confirm your booking and payment details.</p>
               </div>
             </div>

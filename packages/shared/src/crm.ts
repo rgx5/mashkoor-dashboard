@@ -40,10 +40,10 @@ export const OPEN_LEAD_STAGES = ["NEW", "CONTACTED", "QUOTATION", "WAITING_PAYME
 export const BOARD_STAGES = [...OPEN_LEAD_STAGES, "WON", "LOST"] as const satisfies readonly LeadStage[];
 
 export const LEAD_STAGE_LABELS: Record<LeadStage, string> = {
-  NEW: "New",
-  CONTACTED: "Contacted",
-  QUOTATION: "Quotation",
-  WAITING_PAYMENT: "Waiting for payment",
+  NEW: "New lead",
+  CONTACTED: "Requirements taken",
+  QUOTATION: "Quotation sent",
+  WAITING_PAYMENT: "Awaiting payment",
   WON: "Won",
   LOST: "Lost",
 };
@@ -240,7 +240,7 @@ export type TravelerData = z.output<typeof travelerInputSchema>;
 
 // ─── Leads ──────────────────────────────────────────────────────────────────
 
-const leadRequirementFields = {
+export const leadRequirementFields = {
   productType: z.enum(PRODUCT_TYPES).default("OTHER"),
   /** How the trip would be run — FIT, a group tour, or a custom private plan. Separate from productType. */
   tripType: z.enum(TRIP_TYPES).default("FIT"),
@@ -313,6 +313,9 @@ export const leadStageChangeSchema = z
 export type LeadStageChange = z.output<typeof leadStageChangeSchema>;
 
 export const leadAssignSchema = z.object({ ownerId: uuid.nullable() });
+
+/** Super admin hands a lead that is ready for payment to an accountant (null takes it back). */
+export const leadAccountantSchema = z.object({ accountantId: uuid.nullable() });
 
 export const leadBulkSchema = z.object({
   ids: z.array(uuid).min(1).max(200),
@@ -518,6 +521,8 @@ export interface LeadRow {
   stage: LeadStage;
   priority: LeadPriority;
   owner: UserRef | null;
+  /** The accountant handling payment; the owner keeps read-only access once this is set. */
+  accountant: UserRef | null;
   nextFollowUpAt: string | null;
   lastContactedAt: string | null;
   stageChangedAt: string;
@@ -532,6 +537,13 @@ export interface LeadDetail extends LeadRow {
   requirements: string | null;
   lostReason: LostReason | null;
   attribution: Record<string, string | null> | null;
+  /** The raw enquiry this lead came from (that record is deleted once converted). */
+  enquiryRef: string | null;
+  accountantAssignedAt: string | null;
+  /** Latest quotation, booking and invoice, so the page can offer the next step. */
+  quotation: { id: string; refNo: string; status: string } | null;
+  booking: { id: string; refNo: string } | null;
+  invoice: { id: string; refNo: string } | null;
   updatedAt: string;
 }
 

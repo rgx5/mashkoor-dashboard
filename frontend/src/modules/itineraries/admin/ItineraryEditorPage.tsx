@@ -11,30 +11,32 @@ import {
   type ProductType,
   type TripType,
   ITINERARY_LINE_KIND_LABELS,
-  lineTotal,
+  QUOTE_VALIDITY_DAYS,
+  quoteValidityLabel,
   ITINERARY_LINE_KINDS,
   type ItineraryLineKind,
   type FlightSegment,
   type HotelStay,
   type PaymentScheduleItem,
   BASE_CURRENCY,
-  type CurrencyRow,
 } from "@mashkoor/shared";
-import { Copy, Download, ExternalLink, Eye, FileCheck2, Link2, Mail, Plus, Save, Send, Trash2, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronsDownUp, ChevronsUpDown, Copy, Download, ExternalLink, Eye, FileCheck2, Link2, Mail, Plus, Save, Send, Trash2, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
+import { ApiError } from "@/core/api/client";
 import { errorMessage } from "@/core/api/errors";
 import { formatDate, formatDateTime, formatINR } from "@/core/format";
 import { useAbility } from "@/core/rbac/ability";
 import { Button, buttonClass } from "@/core/ui/Button";
 import { Dialog } from "@/core/ui/Dialog";
-import { FormError, inputClass, SelectField, TextareaField, TextField } from "@/core/ui/form";
+import { Field, FormError, inputClass, SelectField, TextareaField, TextField } from "@/core/ui/form";
 import { Badge, Card } from "@/core/ui/layout";
 import { BackLink } from "@/core/ui/misc";
 import { FullPageSpinner } from "@/core/ui/Spinner";
 import { useCurrencies } from "@/modules/currencies";
 import { CustomerPicker } from "@/modules/customers/CustomerPicker";
+import { StaffSelect } from "@/modules/users";
 import {
   useConvertItinerary,
   useCreateItinerary,
@@ -48,6 +50,7 @@ import {
   downloadQuotation,
 } from "../api";
 import { itineraryTone } from "./ItinerariesPage";
+import { KIND_ICON, KIND_TONE, LineItem } from "./LineItem";
 
 interface FormState {
   title: string;
@@ -56,6 +59,7 @@ interface FormState {
   isTemplate: boolean;
   customerId: string;
   leadId: string;
+  relationshipManagerId: string;
   destination: string;
   travelFrom: string;
   travelTo: string;
@@ -76,7 +80,7 @@ interface FormState {
   hotels: HotelStay[];
 }
 
-const emptyForm: FormState = { title: "", productType: "HOLIDAY", tripType: "FIT", isTemplate: false, customerId: "", leadId: "", destination: "", travelFrom: "", travelTo: "", adults: 2, children: 0, days: [], lines: [], inclusions: "", exclusions: "", terms: "", paymentSchedule: [], subject: "", quoteDescription: "", quoteNotes: "", adjustment: 0, fullPaymentDueDate: "", flights: [], hotels: [] };
+const emptyForm: FormState = { title: "", productType: "HOLIDAY", tripType: "FIT", isTemplate: false, customerId: "", leadId: "", relationshipManagerId: "", destination: "", travelFrom: "", travelTo: "", adults: 2, children: 0, days: [], lines: [], inclusions: "", exclusions: "", terms: "", paymentSchedule: [], subject: "", quoteDescription: "", quoteNotes: "", adjustment: 0, fullPaymentDueDate: "", flights: [], hotels: [] };
 
 const fromDetail = (d: ItineraryDetail): FormState => ({
   title: d.title,
@@ -85,6 +89,7 @@ const fromDetail = (d: ItineraryDetail): FormState => ({
   isTemplate: d.isTemplate,
   customerId: d.customer?.id ?? "",
   leadId: d.lead?.id ?? "",
+  relationshipManagerId: d.relationshipManager?.id ?? "",
   destination: d.destination ?? "",
   travelFrom: d.travelFrom?.slice(0, 10) ?? "",
   travelTo: d.travelTo?.slice(0, 10) ?? "",
@@ -114,6 +119,7 @@ const toPayload = (f: FormState) => ({
   isTemplate: f.isTemplate,
   customerId: f.isTemplate ? null : f.customerId || null,
   leadId: f.isTemplate ? null : f.leadId || null,
+  relationshipManagerId: f.isTemplate ? null : f.relationshipManagerId || null,
   destination: f.destination || null,
   travelFrom: f.travelFrom || null,
   travelTo: f.travelTo || null,
@@ -133,6 +139,20 @@ const toPayload = (f: FormState) => ({
   flights: f.flights,
   hotels: f.hotels,
 });
+
+/** Turns the server's `lines.2.description`-style paths into plain sentences, and says which pricing lines are at fault. */
+function explainFieldErrors(fieldErrors: Record<string, string>) {
+  const lines = new Set<number>();
+  const messages = Object.entries(fieldErrors).map(([path, message]) => {
+    const [head, index] = path.split(".");
+    const n = Number(index) + 1;
+    const label =
+      head === "lines" ? `Pricing line ${n}` : head === "days" ? `Day ${n}` : head === "flights" ? `Flight ${n}` : head === "hotels" ? `Hotel ${n}` : head === "paymentSchedule" ? `Instalment ${n}` : head === "title" ? "Title" : path === "_" ? "" : path;
+    if (head === "lines" && Number.isFinite(n)) lines.add(n - 1);
+    return label ? `${label}: ${message}` : message;
+  });
+  return { messages, lines };
+}
 
 /** Build or edit one itinerary. For a saved plan it also carries the share / email / convert actions. */
 export function ItineraryEditorPage() {
@@ -158,6 +178,10 @@ export function ItineraryEditorPage() {
   }));
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [problems, setProblems] = useState<string[]>([]);
+  const [badLines, setBadLines] = useState<Set<number>>(new Set());
+  /** Which pricing lines are open for editing, by position. Saved quotations start with every line collapsed. */
+  const [openLines, setOpenLines] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     if (existing && loadedId !== existing.id) {
@@ -171,32 +195,66 @@ export function ItineraryEditorPage() {
   const locked = existing ? existing.status === "ACCEPTED" || existing.status === "CONVERTED" : false;
   const canEdit = !locked && ability.can(id ? "update" : "create", "Itinerary");
   const total = itineraryTotal(form.lines, form.adjustment);
+  const subtotal = itineraryTotal(form.lines, 0);
   const patch = (changes: Partial<FormState>) => setForm((f) => ({ ...f, ...changes }));
 
   const save = async () => {
     setError(null);
+    setProblems([]);
+    setBadLines(new Set());
     try {
       if (id) {
         await update.mutateAsync({ id, input: toPayload(form) });
-        toast.success("Itinerary saved");
+        toast.success("Quotation saved");
       } else {
         const created = await create.mutateAsync(toPayload(form));
-        toast.success("Itinerary created");
+        toast.success("Quotation created");
         navigate(`/admin/itineraries/${created.id}`, { replace: true });
       }
     } catch (e) {
-      setError(errorMessage(e));
+      if (e instanceof ApiError && Object.keys(e.fieldErrors).length > 0) {
+        const { messages, lines } = explainFieldErrors(e.fieldErrors);
+        setProblems(messages);
+        setBadLines(lines);
+        setOpenLines((prev) => new Set([...prev, ...lines]));
+        setError("This quotation can't be saved yet. Fix the following:");
+      } else {
+        setError(errorMessage(e));
+      }
     }
   };
 
   const setDay = (i: number, changes: Partial<ItineraryDay>) => patch({ days: form.days.map((d, n) => (n === i ? { ...d, ...changes } : d)) });
   const setLine = (i: number, changes: Partial<ItineraryLine>) => patch({ lines: form.lines.map((l, n) => (n === i ? { ...l, ...changes } : l)) });
 
+  /** Rebuilds the line list from old positions (-1 = a new blank line is added by the caller), keeping each line's open state with it. */
+  const reorderLines = (order: number[], extra: ItineraryLine[] = [], openNew = false) => {
+    const lines = [...order.map((o) => form.lines[o]), ...extra];
+    const open = new Set<number>(order.flatMap((o, n) => (openLines.has(o) ? [n] : [])));
+    if (openNew) extra.forEach((_, k) => open.add(order.length + k));
+    patch({ lines });
+    setOpenLines(open);
+    setBadLines(new Set());
+  };
+  const addLine = (kind: ItineraryLineKind) =>
+    reorderLines(form.lines.map((_, n) => n), [{ kind, description: "", detail: null, quantity: 1, unitPrice: 0, currency: BASE_CURRENCY, foreignAmount: null, fxRate: null, discount: 0, taxPercent: 0 }], true);
+  const duplicateLine = (i: number) => {
+    const order = form.lines.map((_, n) => n);
+    order.splice(i + 1, 0, i);
+    reorderLines(order);
+    setOpenLines((prev) => new Set([...prev, i + 1]));
+  };
+  const moveLine = (i: number, by: -1 | 1) => {
+    const order = form.lines.map((_, n) => n);
+    [order[i], order[i + by]] = [order[i + by], order[i]];
+    reorderLines(order);
+  };
+
   return (
     <>
-      <BackLink to={form.isTemplate ? "/admin/itineraries?view=templates" : "/admin/itineraries"}>Itineraries</BackLink>
+      <BackLink to={form.isTemplate ? "/admin/itineraries?view=templates" : "/admin/itineraries"}>Quotations</BackLink>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-semibold">{id ? existing?.title ?? "Itinerary" : form.isTemplate ? "New template" : "New itinerary"}</h1>
+        <h1 className="text-2xl font-semibold">{id ? existing?.title ?? "Quotation" : form.isTemplate ? "New template" : "New quotation"}</h1>
         {existing && (
           <>
             <span className="text-sm text-ink-500">{existing.refNo}</span>
@@ -212,6 +270,13 @@ export function ItineraryEditorPage() {
         <div className="space-y-4">
           <Card className="space-y-4 p-5">
             <FormError message={error} />
+            {problems.length > 0 && (
+              <ul className="list-disc space-y-0.5 rounded-lg bg-red-50 py-2 pr-3 pl-7 text-sm text-red-700">
+                {problems.map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
+            )}
             <TextField label="Title" required disabled={!canEdit} value={form.title} onChange={(e) => patch({ title: e.target.value })} placeholder="e.g. 7 nights Umrah with Madinah stay" />
             <div className="grid gap-4 sm:grid-cols-2">
               <SelectField label="Product" disabled={!canEdit} value={form.productType} onChange={(e) => patch({ productType: e.target.value as ProductType })}>
@@ -238,6 +303,11 @@ export function ItineraryEditorPage() {
               <div className={canEdit ? "" : "pointer-events-none opacity-70"}>
                 <CustomerPicker value={form.customerId} onChange={(customerId) => patch({ customerId })} hint="Needed to email the plan and to create a booking from it." />
               </div>
+            )}
+            {!form.isTemplate && (
+              <Field label="Relationship manager" hint="Named on the quotation as the customer's contact. Leave blank to use the person who owns it.">
+                <StaffSelect aria-label="Relationship manager" emptyLabel="Same as the owner" disabled={!canEdit} value={form.relationshipManagerId} onChange={(e) => patch({ relationshipManagerId: e.target.value })} />
+              </Field>
             )}
             {canEdit && !id && (
               <label className="flex items-center gap-2 text-sm text-ink-700">
@@ -275,62 +345,81 @@ export function ItineraryEditorPage() {
           </Card>
 
           <Card className="p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold">Pricing</h2>
-              {canEdit && (
-                <Button size="sm" variant="secondary" onClick={() => patch({ lines: [...form.lines, { kind: "OTHER", description: "", detail: null, quantity: 1, unitPrice: 0, currency: BASE_CURRENCY, foreignAmount: null, fxRate: null, discount: 0, taxPercent: 0 }] })}>
-                  <Plus className="h-4 w-4" aria-hidden /> Add line
-                </Button>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold">Pricing</h2>
+                <p className="text-xs text-ink-500">
+                  {form.lines.length === 0 ? "Each line becomes a booking item if the customer accepts." : `${form.lines.length} line${form.lines.length > 1 ? "s" : ""} · ${formatINR(subtotal)}`}
+                </p>
+              </div>
+              {form.lines.length > 1 && (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => setOpenLines(new Set(form.lines.map((_, n) => n)))}>
+                    <ChevronsUpDown className="h-4 w-4" aria-hidden /> Expand all
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setOpenLines(new Set())}>
+                    <ChevronsDownUp className="h-4 w-4" aria-hidden /> Collapse all
+                  </Button>
+                </div>
               )}
             </div>
-            {form.lines.length === 0 && <p className="text-sm text-ink-500">Add priced lines (e.g. “Return flights × 2”). They become the booking's items if the customer accepts.</p>}
-            <ul className="space-y-2">
+            <datalist id="line-presets">
+              <option value="Laundry" />
+              <option value="Zamzam" />
+              <option value="Travel insurance" />
+              <option value="Ziyarat" />
+            </datalist>
+            {form.lines.length === 0 && <p className="mt-4 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-ink-500">No lines yet. Add a flight, hotel or anything else below.</p>}
+            <ul className="mt-4 space-y-3">
               {form.lines.map((l, i) => (
-                <li key={i} className="rounded-lg border border-line p-2.5">
-                  <div className="grid grid-cols-[120px_1fr_64px_96px_32px] items-center gap-2">
-                    <select aria-label="Type" className={inputClass} disabled={!canEdit} value={l.kind ?? "OTHER"} onChange={(e) => setLine(i, { kind: e.target.value as ItineraryLineKind })}>
-                      {ITINERARY_LINE_KINDS.map((k) => (
-                        <option key={k} value={k}>
-                          {ITINERARY_LINE_KIND_LABELS[k]}
-                        </option>
-                      ))}
-                    </select>
-                    <input aria-label="Description" className={inputClass} placeholder="Description, e.g. Hotel-Triple-Voco Makkah" disabled={!canEdit} value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
-                    <input aria-label="Quantity" type="number" min={1} className={inputClass} disabled={!canEdit} value={l.quantity} onChange={(e) => setLine(i, { quantity: Number(e.target.value) })} />
-                    <input aria-label="Unit price (₹)" type="number" min={0} className={inputClass} disabled={!canEdit} value={l.unitPrice} onChange={(e) => setLine(i, { unitPrice: Number(e.target.value) })} />
-                    {canEdit && (
-                      <button type="button" aria-label="Remove line" className="text-red-600" onClick={() => patch({ lines: form.lines.filter((_, n) => n !== i) })}>
-                        <Trash2 className="h-4 w-4" aria-hidden />
-                      </button>
-                    )}
-                  </div>
-                  <LineCurrencyRow line={l} currencies={currencies ?? []} disabled={!canEdit} onChange={(changes) => setLine(i, changes)} />
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-500">
-                    <label className="flex items-center gap-1.5">
-                      Less (₹)
-                      <input aria-label="Discount" type="number" min={0} className={`${inputClass} w-24`} disabled={!canEdit} value={l.discount ?? 0} onChange={(e) => setLine(i, { discount: Number(e.target.value) })} />
-                    </label>
-                    <label className="flex items-center gap-1.5">
-                      Tax (%)
-                      <input aria-label="Tax percent" type="number" min={0} max={100} step="0.1" className={`${inputClass} w-20`} disabled={!canEdit} value={l.taxPercent ?? 0} onChange={(e) => setLine(i, { taxPercent: Number(e.target.value) })} />
-                    </label>
-                    <span className="ml-auto text-sm font-semibold text-ink-900">{formatINR(lineTotal(l))}</span>
-                  </div>
-                  <textarea aria-label="Details" rows={3} className={`${inputClass} mt-2`} placeholder={"Details printed under the line on the quotation, e.g.\n1. Air Ticket-Adult-Gulf Airlines Mum to Jed…\n2. Hotel-Triple-Voco Makkah, 16-Sep to 23-Sep, 7 nights"} disabled={!canEdit} value={l.detail ?? ""} onChange={(e) => setLine(i, { detail: e.target.value })} />
-                </li>
+                <LineItem
+                  key={i}
+                  index={i}
+                  count={form.lines.length}
+                  line={l}
+                  open={openLines.has(i)}
+                  bad={badLines.has(i)}
+                  canEdit={canEdit}
+                  productType={form.productType}
+                  currencies={currencies ?? []}
+                  onToggle={() => setOpenLines((prev) => { const next = new Set(prev); if (next.has(i)) next.delete(i); else next.add(i); return next; })}
+                  onChange={(changes) => setLine(i, changes)}
+                  onRemove={() => reorderLines(form.lines.map((_, n) => n).filter((n) => n !== i))}
+                  onDuplicate={() => duplicateLine(i)}
+                  onMove={(by) => moveLine(i, by)}
+                />
               ))}
             </ul>
-            <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3 text-sm">
-              <label className="flex items-center gap-2 text-ink-500">
-                Adjustment (₹)
-                <input aria-label="Adjustment" type="number" className={`${inputClass} w-28`} disabled={!canEdit} value={form.adjustment} onChange={(e) => patch({ adjustment: Number(e.target.value) })} />
-                <span className="text-xs">use a negative number for a discount</span>
+            {canEdit && (
+              <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-plum-300 bg-plum-50/40 p-3">
+                <span className="mr-1 text-sm font-semibold text-ink-700">Add a line</span>
+                {ITINERARY_LINE_KINDS.map((k) => {
+                  const Icon = KIND_ICON[k];
+                  return (
+                    <button key={k} type="button" onClick={() => addLine(k)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold transition hover:shadow-sm ${KIND_TONE[k]}`}>
+                      <Icon className="h-4 w-4" aria-hidden /> {ITINERARY_LINE_KIND_LABELS[k]}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="mt-4 ml-auto max-w-sm space-y-2 rounded-xl border border-line bg-surface/60 p-4 text-sm">
+              <p className="flex justify-between text-ink-700">
+                <span>Subtotal</span>
+                <span className="font-semibold">{formatINR(subtotal)}</span>
+              </p>
+              <label className="flex items-center justify-between gap-3 text-ink-700">
+                <span>
+                  Adjustment (₹)
+                  <span className="block text-xs text-ink-500">Negative for a discount</span>
+                </span>
+                <input aria-label="Adjustment" type="number" className={`${inputClass} w-32 text-right`} disabled={!canEdit} value={form.adjustment} onChange={(e) => patch({ adjustment: Number(e.target.value) })} />
               </label>
+              <p className="flex justify-between border-t border-line pt-2 text-lg font-semibold text-ink-900">
+                <span>Grand total</span>
+                <span>{formatINR(total)}</span>
+              </p>
             </div>
-            <p className="mt-2 flex justify-between text-base font-semibold">
-              <span>Grand total</span>
-              <span>{formatINR(total)}</span>
-            </p>
           </Card>
 
           <Card className="grid gap-4 p-5 sm:grid-cols-2">
@@ -463,61 +552,17 @@ export function ItineraryEditorPage() {
           {canEdit && (
             <Card className="p-5">
               <Button className="w-full" onClick={() => void save()} loading={create.isPending || update.isPending} disabled={form.title.trim().length < 2}>
-                <Save className="h-4 w-4" aria-hidden /> {id ? "Save changes" : "Create itinerary"}
+                <Save className="h-4 w-4" aria-hidden /> {id ? "Save changes" : "Create quotation"}
               </Button>
               <p className="mt-2 text-center text-xs text-ink-500">Total {formatINR(total)}</p>
             </Card>
           )}
+          {existing && !existing.isTemplate && <ShareActions itinerary={existing} />}
           {existing && <Insights itinerary={existing} />}
           {existing?.isTemplate && ability.can("create", "Itinerary") && <UseTemplate id={existing.id} />}
         </aside>
       </div>
     </>
-  );
-}
-
-/** Only shown once a line is priced in something other than INR — picking a supplier's currency and typing the
- * amount they billed fills in the unit price (in ₹) automatically; it stays editable afterwards. */
-function LineCurrencyRow({ line, currencies, disabled, onChange }: { line: ItineraryLine; currencies: CurrencyRow[]; disabled: boolean; onChange: (changes: Partial<ItineraryLine>) => void }) {
-  const currency = line.currency ?? BASE_CURRENCY;
-  const isForeign = currency !== BASE_CURRENCY;
-
-  const recompute = (foreignAmount: number | null, fxRate: number | null) => onChange({ foreignAmount, fxRate, unitPrice: foreignAmount != null && fxRate ? Math.round(foreignAmount * fxRate) : 0 });
-
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-2">
-      <select
-        aria-label="Currency"
-        className={`${inputClass} w-auto`}
-        disabled={disabled}
-        value={currency}
-        onChange={(e) => {
-          const code = e.target.value;
-          if (code === BASE_CURRENCY) onChange({ currency: code, foreignAmount: null, fxRate: null });
-          else onChange({ currency: code, fxRate: currencies.find((c) => c.code === code)?.rateToInr ?? line.fxRate ?? 1 });
-        }}
-      >
-        <option value={BASE_CURRENCY}>{BASE_CURRENCY}</option>
-        {currencies.filter((c) => c.code !== BASE_CURRENCY).map((c) => (
-          <option key={c.code} value={c.code}>
-            {c.code} — {c.name}
-          </option>
-        ))}
-      </select>
-      {isForeign && (
-        <>
-          <label className="flex items-center gap-1.5 text-xs text-ink-500">
-            Amount in {currency}
-            <input aria-label={`Amount in ${currency}`} type="number" min={0} step="0.01" className={`${inputClass} w-28`} disabled={disabled} value={line.foreignAmount ?? ""} onChange={(e) => recompute(e.target.value === "" ? null : Number(e.target.value), line.fxRate ?? 1)} />
-          </label>
-          <label className="flex items-center gap-1.5 text-xs text-ink-500">
-            Rate (₹ per {currency})
-            <input aria-label="Exchange rate" type="number" min={0} step="0.0001" className={`${inputClass} w-24`} disabled={disabled} value={line.fxRate ?? ""} onChange={(e) => recompute(line.foreignAmount ?? null, e.target.value === "" ? null : Number(e.target.value))} />
-          </label>
-          <span className="text-xs text-ink-400">Fills in the ₹ unit price — edit it above afterwards if you need to adjust it.</span>
-        </>
-      )}
-    </div>
   );
 }
 
@@ -583,17 +628,18 @@ function UseTemplate({ id }: { id: string }) {
 }
 
 /** Share link, email, withdraw, convert, duplicate, delete. */
-function ActionsBar({ itinerary, onDeleted }: { itinerary: ItineraryDetail; onDeleted: () => void }) {
+/** What happens once the quotation exists: the customer's link, and turning it into a booking. Kept apart from the main buttons. */
+function ShareActions({ itinerary }: { itinerary: ItineraryDetail }) {
   const ability = useAbility("admin");
   const navigate = useNavigate();
-  const share = useShareItinerary();
   const unshare = useUnshareItinerary();
   const send = useSendItinerary();
   const convert = useConvertItinerary();
-  const duplicate = useDuplicateItinerary();
-  const remove = useDeleteItinerary();
-  const [days, setDays] = useState("14");
   const canUpdate = ability.can("update", "Itinerary");
+  const hasLink = itinerary.status === "SHARED" && Boolean(itinerary.shareUrl);
+  const canConvert = canUpdate && itinerary.status !== "CONVERTED";
+  const opened = itinerary.status === "CONVERTED" && Boolean(itinerary.convertedBookingId);
+  if (!hasLink && !canConvert && !opened) return null;
 
   const run = async (action: () => Promise<unknown>, success?: string) => {
     try {
@@ -614,35 +660,19 @@ function ActionsBar({ itinerary, onDeleted }: { itinerary: ItineraryDetail; onDe
   };
 
   return (
-    <Card className="mb-4 flex flex-wrap items-center gap-2 p-3">
-      {!itinerary.isTemplate && (
-        <Button variant="secondary" size="sm" onClick={() => void run(() => downloadQuotation(itinerary.id, `${itinerary.refNo}.pdf`))}>
-          <Download className="h-4 w-4" aria-hidden /> Quotation PDF
-        </Button>
-      )}
-      {canUpdate && itinerary.status === "DRAFT" && (
-        <>
-          <select aria-label="Link valid for" value={days} onChange={(e) => setDays(e.target.value)} className={`${inputClass} w-auto`}>
-            <option value="7">Valid 7 days</option>
-            <option value="14">Valid 14 days</option>
-            <option value="30">Valid 30 days</option>
-          </select>
-          <Button onClick={() => void run(() => share.mutateAsync({ id: itinerary.id, validForDays: Number(days) }), "Shared — copy the link or email it")} loading={share.isPending}>
-            <Link2 className="h-4 w-4" aria-hidden /> Share with customer
-          </Button>
-        </>
-      )}
-      {itinerary.status === "SHARED" && itinerary.shareUrl && (
-        <>
-          <input aria-label="Share link" readOnly value={itinerary.shareUrl} onFocus={(e) => e.currentTarget.select()} className={`${inputClass} min-w-0 flex-1 basis-64`} />
-          <Button variant="secondary" size="sm" onClick={() => void copyLink()}>
-            <Copy className="h-4 w-4" aria-hidden /> Copy
-          </Button>
-          <a href={itinerary.shareUrl} target="_blank" rel="noreferrer" className={buttonClass("secondary", "sm")}>
-            <ExternalLink className="h-4 w-4" aria-hidden /> Preview
-          </a>
-          {canUpdate && (
-            <>
+    <Card className="space-y-3 p-5">
+      {hasLink && itinerary.shareUrl && (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-ink-900">Customer link</p>
+          <input aria-label="Share link" readOnly value={itinerary.shareUrl} onFocus={(e) => e.currentTarget.select()} className={`${inputClass} w-full`} />
+          <div className="grid grid-cols-3 gap-2">
+            <Button variant="secondary" size="sm" onClick={() => void copyLink()}>
+              <Copy className="h-4 w-4" aria-hidden /> Copy
+            </Button>
+            <a href={itinerary.shareUrl} target="_blank" rel="noreferrer" className={buttonClass("secondary", "sm")}>
+              <ExternalLink className="h-4 w-4" aria-hidden /> Preview
+            </a>
+            {canUpdate && (
               <Button
                 variant="secondary"
                 size="sm"
@@ -657,17 +687,19 @@ function ActionsBar({ itinerary, onDeleted }: { itinerary: ItineraryDetail; onDe
               >
                 <Mail className="h-4 w-4" aria-hidden /> Email
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => void run(() => unshare.mutateAsync(itinerary.id), "Link withdrawn")}>
-                <Undo2 className="h-4 w-4" aria-hidden /> Withdraw
-              </Button>
-            </>
+            )}
+          </div>
+          {canUpdate && (
+            <Button variant="ghost" size="sm" className="w-full" onClick={() => void run(() => unshare.mutateAsync(itinerary.id), "Link withdrawn")}>
+              <Undo2 className="h-4 w-4" aria-hidden /> Withdraw link
+            </Button>
           )}
-        </>
+        </div>
       )}
-      {canUpdate && itinerary.status !== "CONVERTED" && (itinerary.status === "ACCEPTED" || itinerary.status === "SHARED" || itinerary.status === "DRAFT") && (
+      {canConvert && (
         <Button
           variant={itinerary.status === "ACCEPTED" ? "primary" : "secondary"}
-          size={itinerary.status === "ACCEPTED" ? "md" : "sm"}
+          className="w-full"
           loading={convert.isPending}
           onClick={() =>
             void run(async () => {
@@ -680,10 +712,87 @@ function ActionsBar({ itinerary, onDeleted }: { itinerary: ItineraryDetail; onDe
           <FileCheck2 className="h-4 w-4" aria-hidden /> Create booking
         </Button>
       )}
-      {itinerary.status === "CONVERTED" && itinerary.convertedBookingId && (
-        <Link to={`/admin/bookings/${itinerary.convertedBookingId}`} className={buttonClass("primary")}>
+      {opened && (
+        <Link to={`/admin/bookings/${itinerary.convertedBookingId}`} className={buttonClass("primary", "md", "w-full")}>
           <Send className="h-4 w-4" aria-hidden /> Open booking
         </Link>
+      )}
+    </Card>
+  );
+}
+
+function ActionsBar({ itinerary, onDeleted }: { itinerary: ItineraryDetail; onDeleted: () => void }) {
+  const ability = useAbility("admin");
+  const navigate = useNavigate();
+  const share = useShareItinerary();
+  const duplicate = useDuplicateItinerary();
+  const remove = useDeleteItinerary();
+  const [days, setDays] = useState("1");
+  const [pdfMenu, setPdfMenu] = useState(false);
+  const canUpdate = ability.can("update", "Itinerary");
+
+  const run = async (action: () => Promise<unknown>, success?: string) => {
+    try {
+      await action();
+      if (success) toast.success(success);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
+  return (
+    <Card className="mb-4 flex flex-wrap items-center gap-2 p-3">
+      {!itinerary.isTemplate && (
+        <div className="relative">
+          <Button variant="secondary" size="sm" onClick={() => setPdfMenu(!pdfMenu)} aria-haspopup="menu" aria-expanded={pdfMenu}>
+            <Download className="h-4 w-4" aria-hidden /> Download PDF <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+          </Button>
+          {pdfMenu && (
+            <>
+              <button type="button" aria-label="Close menu" className="fixed inset-0 z-10 cursor-default" onClick={() => setPdfMenu(false)} />
+              <div role="menu" className="absolute left-0 z-20 mt-1 w-72 overflow-hidden rounded-lg border border-line bg-white shadow-lg">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="block w-full px-4 py-2.5 text-left hover:bg-plum-50"
+                  onClick={() => {
+                    setPdfMenu(false);
+                    void run(() => downloadQuotation(itinerary.id, `${itinerary.refNo}.pdf`, true));
+                  }}
+                >
+                  <span className="block text-sm font-semibold text-ink-900">With price breakup</span>
+                  <span className="block text-xs text-ink-500">Every item with its own price, discount and tax</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="block w-full border-t border-line px-4 py-2.5 text-left hover:bg-plum-50"
+                  onClick={() => {
+                    setPdfMenu(false);
+                    void run(() => downloadQuotation(itinerary.id, `${itinerary.refNo}-package-price.pdf`, false));
+                  }}
+                >
+                  <span className="block text-sm font-semibold text-ink-900">Without breakup</span>
+                  <span className="block text-xs text-ink-500">The items, and one package price for all of them</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {canUpdate && itinerary.status === "DRAFT" && (
+        <>
+          <select aria-label="Link valid for" value={days} onChange={(e) => setDays(e.target.value)} className={`${inputClass} w-auto`}>
+            {QUOTE_VALIDITY_DAYS.map((d) => (
+              <option key={d} value={d}>
+                Valid {quoteValidityLabel(d)}
+              </option>
+            ))}
+          </select>
+          <Button onClick={() => void run(() => share.mutateAsync({ id: itinerary.id, validForDays: Number(days) }), "Shared — copy the link or email it")} loading={share.isPending}>
+            <Link2 className="h-4 w-4" aria-hidden /> Share with customer
+          </Button>
+        </>
       )}
       <span className="ml-auto flex gap-1">
         {ability.can("create", "Itinerary") && (
@@ -706,7 +815,7 @@ function ActionsBar({ itinerary, onDeleted }: { itinerary: ItineraryDetail; onDe
             variant="ghost"
             size="sm"
             onClick={() => {
-              if (window.confirm("Delete this itinerary? This can't be undone.")) void run(async () => { await remove.mutateAsync(itinerary.id); onDeleted(); }, "Itinerary deleted");
+              if (window.confirm("Delete this quotation? This can't be undone.")) void run(async () => { await remove.mutateAsync(itinerary.id); onDeleted(); }, "Quotation deleted");
             }}
           >
             <Trash2 className="h-4 w-4 text-red-600" aria-hidden />

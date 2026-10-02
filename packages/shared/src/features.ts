@@ -10,7 +10,7 @@ export const FEATURE_NAMES = ["quotations", "bookings", "payments", "b2b", "webs
 export type FeatureName = (typeof FEATURE_NAMES)[number];
 
 export const FEATURE_LABELS: Record<FeatureName, string> = {
-  quotations: "Itineraries & quotations (share link, PDF)",
+  quotations: "Quotations (share link, PDF)",
   bookings: "Bookings, inventory, pricing rules, trip documents",
   payments: "Payments, payment links and receipts",
   b2b: "B2B partners, wallet and the partner portal",

@@ -20,6 +20,7 @@ import { ContactsModule } from "./modules/contacts/contacts.module";
 import { CustomersModule } from "./modules/customers/customers.module";
 import { DashboardModule } from "./modules/dashboard/dashboard.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
+import { InvoicesModule } from "./modules/invoices/invoices.module";
 import { ItinerariesModule } from "./modules/itineraries/itineraries.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { PartnersModule } from "./modules/partners/partners.module";
@@ -68,6 +69,7 @@ const isProduction = process.env.NODE_ENV === "production";
     AdministrationModule,
     CompanyModule,
     CurrenciesModule,
+    InvoicesModule,
     ContactsModule,
     TripExperienceModule,
   ],

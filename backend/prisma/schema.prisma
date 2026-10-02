@@ -39,42 +39,45 @@ enum UserStatus {
 }
 
 model User {
-  id           String     @id @default(uuid(7)) @db.Uuid
-  type         UserType
-  role         Role
-  name         String
-  email        String     @unique
-  phone        String?
-  passwordHash String?
-  status       UserStatus @default(INVITED)
+  id             String     @id @default(uuid(7)) @db.Uuid
+  type           UserType
+  role           Role
+  name           String
+  email          String     @unique
+  phone          String?
+  passwordHash   String?
+  status         UserStatus @default(INVITED)
   /// Why the account is DISABLED: "PARTNER_SUSPENDED" (turned off with its agency, restored on reinstatement) or "MANUAL".
   disabledReason String?
   /// Set for PARTNER users (Partner model arrives in Phase 3).
-  partnerId    String?    @db.Uuid
+  partnerId      String?    @db.Uuid
   /// Set for CUSTOMER users (Customer model arrives in Phase 1).
-  customerId   String?    @db.Uuid
-  settings     Json       @default("{}")
-  lastLoginAt  DateTime?
-  failedLogins Int        @default(0)
-  lockedUntil  DateTime?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  createdById  String?    @db.Uuid
+  customerId     String?    @db.Uuid
+  settings       Json       @default("{}")
+  lastLoginAt    DateTime?
+  failedLogins   Int        @default(0)
+  lockedUntil    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  createdById    String?    @db.Uuid
 
   refreshTokens RefreshToken[]
   tokens        UserToken[]
 
-  ownedCustomers    Customer[]        @relation("CustomerOwner")
-  ownedLeads        Lead[]            @relation("LeadOwner")
-  activities        Activity[]        @relation("ActivityAuthor")
-  assignedTasks     Task[]            @relation("TaskAssignee")
-  createdTasks      Task[]            @relation("TaskCreator")
-  ownedBookings     Booking[]         @relation("BookingOwner")
-  ownedItineraries  Itinerary[]       @relation("ItineraryOwner")
-  tripUpdates       TripUpdate[]      @relation("TripUpdateAuthor")
-  uploadedDocuments BookingDocument[] @relation("DocumentUploader")
-  createdContacts   Contact[]         @relation("ContactCreator")
-  partner           Partner?          @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+  ownedCustomers     Customer[]        @relation("CustomerOwner")
+  ownedLeads         Lead[]            @relation("LeadOwner")
+  accountantLeads    Lead[]            @relation("LeadAccountant")
+  ownedEnquiries     Enquiry[]         @relation("EnquiryOwner")
+  activities         Activity[]        @relation("ActivityAuthor")
+  assignedTasks      Task[]            @relation("TaskAssignee")
+  createdTasks       Task[]            @relation("TaskCreator")
+  ownedBookings      Booking[]         @relation("BookingOwner")
+  ownedItineraries   Itinerary[]       @relation("ItineraryOwner")
+  managedItineraries Itinerary[]       @relation("ItineraryManager")
+  tripUpdates        TripUpdate[]      @relation("TripUpdateAuthor")
+  uploadedDocuments  BookingDocument[] @relation("DocumentUploader")
+  createdContacts    Contact[]         @relation("ContactCreator")
+  partner            Partner?          @relation(fields: [partnerId], references: [id], onDelete: SetNull)
 
   @@index([type, status])
   @@index([partnerId])
@@ -188,6 +191,7 @@ model Customer {
   tasks       Task[]
   bookings    Booking[]
   itineraries Itinerary[]
+  invoices    Invoice[]
 
   @@index([phone])
   @@index([email])
@@ -284,56 +288,64 @@ enum LostReason {
 }
 
 model Lead {
-  id              String       @id @default(uuid(7)) @db.Uuid
-  refNo           String       @unique
-  customerId      String?      @db.Uuid
-  customer        Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  contactName     String
-  phone           String
-  email           String?
-  source          LeadSource
-  sourceDetail    String?
+  id                   String       @id @default(uuid(7)) @db.Uuid
+  refNo                String       @unique
+  customerId           String?      @db.Uuid
+  customer             Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contactName          String
+  phone                String
+  email                String?
+  source               LeadSource
+  sourceDetail         String?
   /// UTM, landing page and referrer captured at intake.
-  attribution     Json?
-  productType     ProductType  @default(OTHER)
+  attribution          Json?
+  productType          ProductType  @default(OTHER)
   /// How the trip would be run — FIT, a group tour, or a custom private plan.
-  tripType        TripType     @default(FIT)
-  destination     String?
-  travelFrom      DateTime?    @db.Date
-  travelTo        DateTime?    @db.Date
-  flexibleDates   Boolean      @default(false)
-  adults          Int          @default(1)
-  children        Int          @default(0)
-  infants         Int          @default(0)
+  tripType             TripType     @default(FIT)
+  destination          String?
+  travelFrom           DateTime?    @db.Date
+  travelTo             DateTime?    @db.Date
+  flexibleDates        Boolean      @default(false)
+  adults               Int          @default(1)
+  children             Int          @default(0)
+  infants              Int          @default(0)
   /// What the customer said they can spend.
-  budgetMin       Int?
-  budgetMax       Int?
+  budgetMin            Int?
+  budgetMax            Int?
   /// What we told them, verbally, before any formal itinerary exists.
-  quotedAmount    Int?
-  requirements    String?
-  stage           LeadStage    @default(NEW)
-  lostReason      LostReason?
-  priority        LeadPriority @default(WARM)
-  ownerId         String?      @db.Uuid
-  owner           User?        @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  quotedAmount         Int?
+  requirements         String?
+  stage                LeadStage    @default(NEW)
+  lostReason           LostReason?
+  priority             LeadPriority @default(WARM)
+  ownerId              String?      @db.Uuid
+  owner                User?        @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   /// Set for enquiries raised by a B2B partner.
-  partnerId       String?      @db.Uuid
-  partner         Partner?     @relation("PartnerLeads", fields: [partnerId], references: [id], onDelete: SetNull)
-  nextFollowUpAt  DateTime?
-  lastContactedAt DateTime?
-  stageChangedAt  DateTime     @default(now())
+  partnerId            String?      @db.Uuid
+  partner              Partner?     @relation("PartnerLeads", fields: [partnerId], references: [id], onDelete: SetNull)
+  nextFollowUpAt       DateTime?
+  lastContactedAt      DateTime?
+  stageChangedAt       DateTime     @default(now())
   /// Linked booking once won (Phase 2).
-  wonBookingId    String?      @db.Uuid
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  createdById     String?      @db.Uuid
+  wonBookingId         String?      @db.Uuid
+  /// The accountant who takes over once the quotation is accepted; the sales owner keeps read-only access.
+  accountantId         String?      @db.Uuid
+  accountant           User?        @relation("LeadAccountant", fields: [accountantId], references: [id], onDelete: SetNull)
+  accountantAssignedAt DateTime?
+  /// Reference of the raw enquiry this lead was converted from (that row is deleted on conversion).
+  enquiryRef           String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  createdById          String?      @db.Uuid
 
   activities  Activity[]
   tasks       Task[]
   bookings    Booking[]
   itineraries Itinerary[]
+  invoices    Invoice[]
 
   @@index([stage, ownerId])
+  @@index([accountantId])
   @@index([phone])
   @@index([customerId])
   @@index([nextFollowUpAt])
@@ -435,6 +447,7 @@ model InboundEvent {
   status      InboundEventStatus @default(RECEIVED)
   error       String?
   leadId      String?            @db.Uuid
+  enquiryId   String?            @db.Uuid
   processedAt DateTime?
   createdAt   DateTime           @default(now())
 
@@ -622,18 +635,23 @@ model RoomType {
 /// A block of rooms held at a cost price for a date range. `bookedRooms` only ever moves through
 /// an atomic guarded UPDATE (booking-inventory.service.ts) so concurrent bookings can't overdraw it.
 model RatePeriod {
-  id          String   @id @default(uuid(7)) @db.Uuid
-  roomTypeId  String   @db.Uuid
-  roomType    RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
-  startDate   DateTime @db.Date
-  endDate     DateTime @db.Date
-  /// Per room, per night.
-  costPrice   Int
-  totalRooms  Int
-  bookedRooms Int      @default(0)
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(uuid(7)) @db.Uuid
+  roomTypeId    String   @db.Uuid
+  roomType      RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  startDate     DateTime @db.Date
+  endDate       DateTime @db.Date
+  /// Per room, per night, in rupees. For a foreign-currency rate this is `foreignAmount * fxRate`, rounded.
+  costPrice     Int
+  /// The currency the hotel actually quoted (ISO code); "INR" means the two fields below are unused.
+  currency      String   @default("INR")
+  foreignAmount Float?
+  /// INR per 1 unit of `currency`, snapshotted when the rate was entered so a later change to the Currency table never moves it.
+  fxRate        Float?
+  totalRooms    Int
+  bookedRooms   Int      @default(0)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   bookingItems BookingItem[]
 
@@ -777,6 +795,7 @@ model Booking {
   travelers    Traveler[]        @relation("BookingTravelers")
   payments     Payment[]
   paymentLinks PaymentLink[]
+  invoices     Invoice[]
   updates      TripUpdate[]
   documents    BookingDocument[]
 
@@ -939,10 +958,14 @@ model Payment {
   paymentLinkId String?          @db.Uuid
   paymentLink   PaymentLink?     @relation(fields: [paymentLinkId], references: [id], onDelete: SetNull)
   gatewayRef    String?
+  /// The invoice this payment was recorded against, when the accountant picked one.
+  invoiceId     String?          @db.Uuid
+  invoice       Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
   @@index([bookingId, createdAt])
+  @@index([invoiceId])
   @@index([status])
 }
 
@@ -1021,61 +1044,140 @@ enum ItineraryStatus {
 /// Day-wise trip plan with priced lines, shared with a customer through `/i/:token`.
 /// `days` = [{ day, title, description }]; `lines` = [{ description, quantity, unitPrice }].
 model Itinerary {
-  id                 String          @id @default(uuid(7)) @db.Uuid
-  refNo              String          @unique
-  title              String
-  productType        ProductType     @default(HOLIDAY)
-  tripType           TripType        @default(FIT)
-  isTemplate         Boolean         @default(false)
-  status             ItineraryStatus @default(DRAFT)
-  customerId         String?         @db.Uuid
-  customer           Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  leadId             String?         @db.Uuid
-  lead               Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  ownerId            String?         @db.Uuid
-  owner              User?           @relation("ItineraryOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  destination        String?
-  travelFrom         DateTime?       @db.Date
-  travelTo           DateTime?       @db.Date
-  adults             Int             @default(1)
-  children           Int             @default(0)
-  days               Json            @default("[]")
-  lines              Json            @default("[]")
-  inclusions         String[]        @default([])
-  exclusions         String[]        @default([])
-  terms              String?
+  id                    String          @id @default(uuid(7)) @db.Uuid
+  refNo                 String          @unique
+  title                 String
+  productType           ProductType     @default(HOLIDAY)
+  tripType              TripType        @default(FIT)
+  isTemplate            Boolean         @default(false)
+  status                ItineraryStatus @default(DRAFT)
+  customerId            String?         @db.Uuid
+  customer              Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  leadId                String?         @db.Uuid
+  lead                  Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  ownerId               String?         @db.Uuid
+  owner                 User?           @relation("ItineraryOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  /// Named on the quotation as the customer's contact; falls back to the owner when not chosen.
+  relationshipManagerId String?         @db.Uuid
+  relationshipManager   User?           @relation("ItineraryManager", fields: [relationshipManagerId], references: [id], onDelete: SetNull)
+  destination           String?
+  travelFrom            DateTime?       @db.Date
+  travelTo              DateTime?       @db.Date
+  adults                Int             @default(1)
+  children              Int             @default(0)
+  days                  Json            @default("[]")
+  lines                 Json            @default("[]")
+  inclusions            String[]        @default([])
+  exclusions            String[]        @default([])
+  terms                 String?
   /// Instalments shown on the quotation: [{ label, dueDate, amount }].
-  paymentSchedule    Json            @default("[]")
-  subject            String?
-  quoteDescription   String?
-  quoteNotes         String?
+  paymentSchedule       Json            @default("[]")
+  subject               String?
+  quoteDescription      String?
+  quoteNotes            String?
   /// Added to (or taken off) the total of the lines.
-  adjustment         Int             @default(0)
-  fullPaymentDueDate DateTime?       @db.Date
+  adjustment            Int             @default(0)
+  fullPaymentDueDate    DateTime?       @db.Date
   /// Flight legs and hotel stays printed as tables on the quotation.
-  flights            Json            @default("[]")
-  hotels             Json            @default("[]")
-  totalPrice         Int             @default(0)
-  currency           String          @default("INR")
-  shareToken         String?         @unique
-  sharedAt           DateTime?
-  validUntil         DateTime?
-  viewCount          Int             @default(0)
-  lastViewedAt       DateTime?
-  acceptedAt         DateTime?
-  acceptedBy         String?
+  flights               Json            @default("[]")
+  hotels                Json            @default("[]")
+  totalPrice            Int             @default(0)
+  currency              String          @default("INR")
+  shareToken            String?         @unique
+  sharedAt              DateTime?
+  validUntil            DateTime?
+  viewCount             Int             @default(0)
+  lastViewedAt          DateTime?
+  acceptedAt            DateTime?
+  acceptedBy            String?
   /// The customer asked for changes from their portal; cleared when staff share the plan again.
-  changesRequestedAt DateTime?
-  changesRequestNote String?
-  convertedBookingId String?         @db.Uuid
-  createdById        String?         @db.Uuid
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  changesRequestedAt    DateTime?
+  changesRequestNote    String?
+  convertedBookingId    String?         @db.Uuid
+  createdById           String?         @db.Uuid
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
 
   @@index([status, ownerId])
   @@index([customerId])
   @@index([leadId])
   @@index([isTemplate])
+}
+
+// ─── Enquiries & invoices (sales hand-off flow) ──────────────────────────────
+
+enum EnquiryStatus {
+  NEW
+  CONTACTED
+}
+
+/// A raw enquiry — a name and a way to reach them, requirements not known yet. The admin assigns it to a sales
+/// representative, who contacts the person and then converts it into a Lead (which deletes this row).
+model Enquiry {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  refNo           String        @unique
+  contactName     String
+  phone           String
+  email           String?
+  source          LeadSource
+  sourceDetail    String?
+  /// What they wrote on the form / said on the phone, verbatim.
+  message         String?
+  /// UTM, landing page and referrer captured at intake.
+  attribution     Json?
+  status          EnquiryStatus @default(NEW)
+  ownerId         String?       @db.Uuid
+  owner           User?         @relation("EnquiryOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  assignedAt      DateTime?
+  lastContactedAt DateTime?
+  /// The rep's own notes from calling them.
+  notes           String?
+  createdById     String?       @db.Uuid
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([status, ownerId])
+  @@index([phone])
+  @@index([createdAt])
+}
+
+enum InvoiceStatus {
+  ISSUED
+  CANCELLED
+}
+
+/// A concise, structured bill raised by the accountant from an accepted quotation. What has been paid is never
+/// stored here — it is the sum of the verified payments recorded against the invoice.
+model Invoice {
+  id          String        @id @default(uuid(7)) @db.Uuid
+  refNo       String        @unique
+  status      InvoiceStatus @default(ISSUED)
+  bookingId   String        @db.Uuid
+  booking     Booking       @relation(fields: [bookingId], references: [id])
+  customerId  String        @db.Uuid
+  customer    Customer      @relation(fields: [customerId], references: [id])
+  leadId      String?       @db.Uuid
+  lead        Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  itineraryId String?       @db.Uuid
+  issueDate   DateTime      @default(now()) @db.Date
+  dueDate     DateTime?     @db.Date
+  /// Snapshot of the quotation lines: [{ description, quantity, unitPrice }].
+  lines       Json          @default("[]")
+  /// Added to (or taken off) the total of the lines.
+  adjustment  Int           @default(0)
+  total       Int
+  notes       String?
+  sentAt      DateTime?
+  cancelledAt DateTime?
+  createdById String?       @db.Uuid
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  payments Payment[]
+
+  @@index([bookingId])
+  @@index([customerId])
+  @@index([status, createdAt])
 }
 
 // ─── System ──────────────────────────────────────────────────────────────────

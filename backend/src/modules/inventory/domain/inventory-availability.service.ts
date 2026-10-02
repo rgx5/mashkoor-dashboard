@@ -71,7 +71,11 @@ export class InventoryAvailabilityService {
       where: {
         ...(query.from ? { startDate: { lte: new Date(query.from) } } : {}),
         ...(query.to ? { endDate: { gte: new Date(query.to) } } : {}),
-        roomType: { active: true, hotel: { active: true, ...(query.city ? { city: { contains: query.city, mode: "insensitive" } } : {}) } },
+        roomType: {
+          active: true,
+          // What staff type is matched against the hotel's name as well as its city, so "Voco" and "Makkah" both find it.
+          hotel: { active: true, ...(query.city ? { OR: [{ city: { contains: query.city, mode: "insensitive" } }, { name: { contains: query.city, mode: "insensitive" } }] } : {}) },
+        },
       },
       include: { roomType: { include: { hotel: true } } },
       orderBy: { startDate: "asc" },

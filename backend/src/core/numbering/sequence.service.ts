@@ -7,10 +7,13 @@ const FORMATS = {
   customer: { prefix: "MKC", yearly: false, pad: 6 },
   lead: { prefix: "MKL", yearly: true, pad: 6 },
   package: { prefix: "PKG", yearly: false, pad: 4 },
-  itinerary: { prefix: "MKI", yearly: true, pad: 5 },
+  // Quotations are numbered QT-1, QT-2, QT-3… with no padding and no yearly restart.
+  itinerary: { prefix: "QT", yearly: false, pad: 0 },
   booking: { prefix: "MKB", yearly: true, pad: 6 },
   partner: { prefix: "MKP", yearly: false, pad: 4 },
   receipt: { prefix: "MKR", yearly: true, pad: 6 },
+  enquiry: { prefix: "MKE", yearly: true, pad: 6 },
+  invoice: { prefix: "MKV", yearly: true, pad: 6 },
 } as const;
 
 export type SequenceKey = keyof typeof FORMATS;
