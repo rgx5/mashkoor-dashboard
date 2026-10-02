@@ -11,6 +11,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
+    "admin:create": "ts-node --transpile-only prisma/create-admin.ts",
     "postinstall": "prisma generate"
   },
   "prisma": {
