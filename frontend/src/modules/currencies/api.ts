@@ -1,4 +1,4 @@
-import type { CurrencyData, CurrencyRow, CurrencyUpdateData } from "@mashkoor/shared";
+import type { CurrencyData, CurrencyRateLogRow, CurrencyRatesUpdateData, CurrencyRow, CurrencyUpdateData } from "@mashkoor/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/core/api/client";
 
@@ -16,3 +16,5 @@ function useInvalidating<TArgs, TResult>(fn: (args: TArgs) => Promise<TResult>) 
 export const useCreateCurrency = () => useInvalidating((input: CurrencyData) => admin.post<CurrencyRow>("/currencies", input));
 export const useUpdateCurrency = () => useInvalidating(({ code, input }: { code: string; input: CurrencyUpdateData }) => admin.patch<CurrencyRow>(`/currencies/${code}`, input));
 export const useDeleteCurrency = () => useInvalidating((code: string) => admin.delete<void>(`/currencies/${code}`));
+export const useUpdateRates = () => useInvalidating((input: CurrencyRatesUpdateData) => admin.put<{ changed: number }>("/currencies/rates", input));
+export const useCurrencyHistory = (code: string | null) => useQuery({ queryKey: [...key, "history", code], queryFn: () => admin.get<CurrencyRateLogRow[]>(`/currencies/${code}/history`), enabled: Boolean(code) });

@@ -41,13 +41,16 @@ export const FINANCE_CATEGORY_DIRECTION: Record<FinanceCategory, FinanceDirectio
 export const FINANCE_BOOKING_CATEGORIES: readonly FinanceCategory[] = ["SUPPLIER_PAYMENT", "SUPPLIER_REFUND"];
 
 /** Everything that can appear on the ledger: money from the booking flow plus the manual categories. */
-export const LEDGER_KINDS = ["CUSTOMER_PAYMENT", "CUSTOMER_REFUND", "WALLET_TOPUP", ...FINANCE_CATEGORIES] as const;
+export const LEDGER_KINDS = ["CUSTOMER_PAYMENT", "CUSTOMER_REFUND", "WALLET_TOPUP", "FOREX_SALE", "FOREX_BUYBACK", "FOREX_PURCHASE", ...FINANCE_CATEGORIES] as const;
 export type LedgerKind = (typeof LEDGER_KINDS)[number];
 
 export const LEDGER_KIND_LABELS: Record<LedgerKind, string> = {
   CUSTOMER_PAYMENT: "Customer payment",
   CUSTOMER_REFUND: "Customer refund",
   WALLET_TOPUP: "Partner wallet top-up",
+  FOREX_SALE: "Forex sale",
+  FOREX_BUYBACK: "Forex bought from customer",
+  FOREX_PURCHASE: "Forex stock purchase",
   ...FINANCE_CATEGORY_LABELS,
 };
 
@@ -55,6 +58,9 @@ export const LEDGER_KIND_DIRECTION: Record<LedgerKind, FinanceDirection> = {
   CUSTOMER_PAYMENT: "IN",
   CUSTOMER_REFUND: "OUT",
   WALLET_TOPUP: "IN",
+  FOREX_SALE: "IN",
+  FOREX_BUYBACK: "OUT",
+  FOREX_PURCHASE: "OUT",
   ...FINANCE_CATEGORY_DIRECTION,
 };
 
@@ -133,7 +139,7 @@ export type FinanceBookingsQuery = z.output<typeof financeBookingsQuerySchema>;
 export interface LedgerRow {
   /** `PAYMENT:<id>`, `WALLET:<id>` or `MANUAL:<id>` — unique across the three sources. */
   key: string;
-  source: "PAYMENT" | "WALLET" | "MANUAL";
+  source: "PAYMENT" | "WALLET" | "MANUAL" | "FOREX";
   sourceId: string;
   /** Receipt number or finance entry number; none for wallet top-ups. */
   entryNo: string | null;

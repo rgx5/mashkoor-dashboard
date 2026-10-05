@@ -188,13 +188,14 @@ model Customer {
   updatedAt          DateTime       @updatedAt
   createdById        String?        @db.Uuid
 
-  travelers   Traveler[]
-  leads       Lead[]
-  activities  Activity[]
-  tasks       Task[]
-  bookings    Booking[]
-  itineraries Itinerary[]
-  invoices    Invoice[]
+  travelers         Traveler[]
+  leads             Lead[]
+  activities        Activity[]
+  tasks             Task[]
+  bookings          Booking[]
+  itineraries       Itinerary[]
+  invoices          Invoice[]
+  forexTransactions ForexTransaction[]
 
   @@index([phone])
   @@index([email])
@@ -731,6 +732,10 @@ model Currency {
   symbol      String
   /// How many INR equal 1 unit of this currency.
   rateToInr   Float
+  /// What the forex desk pays per 1 unit when it buys this currency back. Null = not offered at the counter.
+  buyRate     Float?
+  /// What a customer pays per 1 unit when the forex desk sells it to them. Null = not offered at the counter.
+  sellRate    Float?
   active      Boolean  @default(true)
   updatedAt   DateTime @updatedAt
   updatedById String?  @db.Uuid
@@ -1170,7 +1175,14 @@ model Invoice {
   /// Added to (or taken off) the total of the lines.
   adjustment  Int           @default(0)
   total       Int
+  /// What the invoice is for, printed under the customer's name — "Umrah, 7 nights", say.
+  subject     String?
   notes       String?
+  /// Payment terms and conditions printed at the foot of the invoice.
+  terms       String?
+  /// True when the invoice was written from scratch and a booking was created behind it to carry its payments.
+  /// Editing such an invoice keeps that booking's items and total in step.
+  ownsBooking Boolean       @default(false)
   sentAt      DateTime?
   cancelledAt DateTime?
   createdById String?       @db.Uuid
@@ -1375,4 +1387,119 @@ model FinanceEntry {
   @@index([entryDate])
   @@index([bookingId])
   @@index([category])
+}
+
+// ─── Transport inventory ─────────────────────────────────────────────────────
+
+/// A vehicle on a route that Mashkoor can quote: "Hyundai H1, Jeddah airport to Makkah, 7 seats, one vehicle for ₹X".
+/// A price list, not a stock count — there is no availability to reserve against.
+model TransportOption {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  vehicleType   String
+  fromPlace     String
+  toPlace       String
+  seats         Int      @default(4)
+  /// Per vehicle, in rupees. For a foreign-currency rate this is `foreignAmount * fxRate`, rounded.
+  costPrice     Int
+  /// What the operator actually quoted (ISO code); "INR" means the two fields below are unused.
+  currency      String   @default("INR")
+  foreignAmount Float?
+  /// INR per 1 unit of `currency`, snapshotted when the rate was entered.
+  fxRate        Float?
+  active        Boolean  @default(true)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([fromPlace, toPlace])
+  @@index([active])
+}
+
+// ─── Forex ───────────────────────────────────────────────────────────────────
+
+/// Every rate a currency has had, newest last — so the forex page can show how it moved and who changed it. Append-only.
+/// Deliberately not tied to Currency by a foreign key: deleting a currency keeps its history.
+model CurrencyRateLog {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  code         String   @db.Char(3)
+  /// INR per 1 unit of `code` after the change.
+  rate         Float
+  previousRate Float?
+  changedById  String?  @db.Uuid
+  createdAt    DateTime @default(now())
+
+  @@index([code, createdAt])
+}
+
+// ─── Forex desk ──────────────────────────────────────────────────────────────
+
+enum ForexTxnType {
+  /// The desk sells foreign currency to a customer, who pays rupees.
+  SELL
+  /// The desk buys foreign currency back from a customer and pays rupees.
+  BUY
+}
+
+enum ForexForm {
+  CASH
+  CARD
+  TRANSFER
+}
+
+/// One counter transaction: foreign currency sold to a customer (or bought back), at a rate, for rupees. Never edited —
+/// a mistake is cancelled with a reason, which also puts the stock back.
+model ForexTransaction {
+  id            String        @id @default(uuid(7)) @db.Uuid
+  refNo         String        @unique
+  type          ForexTxnType
+  form          ForexForm     @default(CASH)
+  customerId    String?       @db.Uuid
+  customer      Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  /// Kept on the transaction itself, so a walk-in without a customer record is still on file.
+  customerName  String
+  phone         String?
+  currency      String        @db.Char(3)
+  foreignAmount Float
+  /// INR per 1 unit actually applied (the desk rate unless it was overridden).
+  rate          Float
+  inrAmount     Int
+  /// The desk's average cost of this currency at the time of a sale, so the margin never changes afterwards.
+  costRate      Float?
+  paymentMethod PaymentMethod
+  passportNo    String?
+  panNo         String?
+  purpose       String?
+  reference     String?
+  notes         String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+  createdById   String?       @db.Uuid
+  createdAt     DateTime      @default(now())
+
+  @@index([createdAt])
+  @@index([currency])
+  @@index([customerId])
+}
+
+/// Foreign currency the desk bought from a dealer to have stock to sell. Cancelled, never deleted.
+model ForexPurchase {
+  id            String        @id @default(uuid(7)) @db.Uuid
+  currency      String        @db.Char(3)
+  foreignAmount Float
+  /// INR per 1 unit paid to the dealer.
+  rate          Float
+  inrAmount     Int
+  supplier      String
+  paymentMethod PaymentMethod
+  /// The day the deal was done.
+  purchaseDate  DateTime      @db.Date
+  reference     String?
+  notes         String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+  createdById   String?       @db.Uuid
+  createdAt     DateTime      @default(now())
+
+  @@index([currency])
+  @@index([purchaseDate])
 }

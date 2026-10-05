@@ -215,7 +215,13 @@ export const inventorySearchQuerySchema = z.object({
 export type InventorySearchQuery = z.output<typeof inventorySearchQuerySchema>;
 
 /** Searching inventory from a quotation: the same filters, plus the product type so the customer price can be worked out. */
-export const quoteInventorySearchQuerySchema = inventorySearchQuerySchema.extend({ productType: z.enum(PRODUCT_TYPES).default("HOLIDAY") });
+export const quoteInventorySearchQuerySchema = inventorySearchQuerySchema.omit({ kind: true }).extend({
+  kind: z.enum(["HOTEL", "FLIGHT", "TRANSPORT"]),
+  /** Transport: where the vehicle picks up and drops off (matched loosely against the route). */
+  fromPlace: z.string().trim().max(80).optional(),
+  toPlace: z.string().trim().max(80).optional(),
+  productType: z.enum(PRODUCT_TYPES).default("HOLIDAY"),
+});
 export type QuoteInventorySearchQuery = z.input<typeof quoteInventorySearchQuerySchema>;
 
 /** B2B search across both kinds of inventory — the agency's price, never Mashkoor's cost. */
@@ -235,5 +241,63 @@ export interface B2BRoomAvailability {
   hotel: RoomAvailability["hotel"];
   roomType: RoomAvailability["roomType"];
   stay: { id: string; startDate: string; endDate: string; available: number };
+  price: number;
+}
+
+// ─── Transport ──────────────────────────────────────────────────────────────
+
+const transportCurrency = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/).default("INR");
+
+const transportFields = z.object({
+  vehicleType: z.string().trim().min(2, "Enter the vehicle, e.g. Hyundai H1").max(80),
+  fromPlace: z.string().trim().min(2, "Enter where it starts").max(80),
+  toPlace: z.string().trim().min(2, "Enter where it ends").max(80),
+  seats: z.coerce.number().int().min(1).max(100).default(4),
+  /** Per vehicle, in rupees. For a foreign-currency price the server works it out from `foreignAmount` and `fxRate`. */
+  costPrice: money,
+  currency: transportCurrency,
+  foreignAmount: z.coerce.number().min(0).nullable().optional(),
+  fxRate: z.coerce.number().positive().nullable().optional(),
+  active: z.boolean().default(true),
+  notes: optionalText(1000),
+});
+
+export const transportOptionInputSchema = transportFields.refine((v) => v.currency === "INR" || (v.foreignAmount != null && Boolean(v.fxRate)), { path: ["foreignAmount"], message: "Enter the price in this currency" });
+export type TransportOptionInput = z.input<typeof transportOptionInputSchema>;
+export type TransportOptionData = z.output<typeof transportOptionInputSchema>;
+
+export const transportOptionUpdateSchema = patchOf(transportFields);
+export type TransportOptionUpdateData = z.output<typeof transportOptionUpdateSchema>;
+
+export const transportListQuerySchema = listQuerySchema.extend({
+  active: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true")),
+});
+export type TransportListQuery = z.output<typeof transportListQuerySchema>;
+
+export interface TransportOptionRow {
+  id: string;
+  vehicleType: string;
+  fromPlace: string;
+  toPlace: string;
+  seats: number;
+  /** Supplier cost per vehicle in rupees. Null for staff who may not see it (sales agents). */
+  costPrice: number | null;
+  currency: string;
+  foreignAmount: number | null;
+  fxRate: number | null;
+  active: boolean;
+  notes: string | null;
+}
+
+/** A transport option as offered in a quotation: the customer price per vehicle, never the cost. */
+export interface QuoteTransportOption {
+  id: string;
+  vehicleType: string;
+  fromPlace: string;
+  toPlace: string;
+  seats: number;
   price: number;
 }

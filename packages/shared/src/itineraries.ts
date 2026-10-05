@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PRODUCT_TYPES, TRIP_TYPES, type ProductType, type TripType } from "./constants";
+import { BASE_CURRENCY } from "./currency";
 import { listQuerySchema } from "./pagination";
 import { patchOf } from "./patch";
 
@@ -72,6 +73,14 @@ export const lineAttrsSchema = z.object({
   provider: attrText,
   checkIn: attrDate,
   checkOut: attrDate,
+  /** Hotel: nights of the stay, kept in step with the dates (or typed when the check-out isn't known yet). */
+  nights: z.number().int().min(1).max(365).nullable().optional(),
+  /** Meals: total days the meal plan covers, both end dates included. */
+  days: z.number().int().min(1).max(365).nullable().optional(),
+  /** Hotel and meals: the price is a rate per night (hotel) or per day (meals), multiplied out into the unit price. */
+  perUnit: z.boolean().optional(),
+  /** The per-night / per-day rate in rupees, when `perUnit` is on and the line is priced in INR. */
+  rate: z.number().min(0).nullable().optional(),
   /** Transport */
   vehicle: attrText,
   date: attrDate,
@@ -101,6 +110,39 @@ export const nightsBetween = (from?: string | null, to?: string | null) => {
   return nights > 0 ? nights : null;
 };
 
+/** `2026-09-16` + 7 → `2026-09-23`. Works on the calendar date only, so time zones can't shift it. */
+export const addDays = (date: string, days: number) => new Date(Date.parse(date) + days * 86_400_000).toISOString().slice(0, 10);
+
+/** Both end dates counted: 16 Sep to 23 Sep is 8 days of meals. Null when either date is missing or the order is wrong. */
+export const daysBetweenInclusive = (from?: string | null, to?: string | null) => {
+  if (!from || !to) return null;
+  const days = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1;
+  return days >= 1 ? days : null;
+};
+
+/** Nights of a hotel stay: from the dates when both are set, otherwise the number typed in. */
+export const stayNights = (a: ItineraryLineAttrs = {}) => nightsBetween(a.checkIn, a.checkOut) ?? a.nights ?? null;
+
+/** Days of meals: from the dates when both are set, otherwise the number typed in. */
+export const mealDays = (a: ItineraryLineAttrs = {}) => daysBetweenInclusive(a.checkIn, a.checkOut) ?? a.days ?? null;
+
+/** What a per-night (hotel) or per-day (meals) rate is multiplied by; null for every other kind of line. */
+export const lineMultiplier = (kind: ItineraryLineKind, a: ItineraryLineAttrs = {}) => (kind === "HOTEL" ? stayNights(a) : kind === "MEALS" ? mealDays(a) : null);
+
+/**
+ * When a hotel or meals line is priced per night / per day, its unit price follows from the rate and the length of the stay.
+ * Returns the unit price to set, or null when the line isn't priced that way (or the length isn't known yet).
+ */
+export function ratedUnitPrice(line: Pick<ItineraryLine, "kind" | "attrs" | "currency" | "foreignAmount" | "fxRate">): number | null {
+  const kind = line.kind ?? "OTHER";
+  const attrs = line.attrs ?? {};
+  const multiplier = lineMultiplier(kind, attrs);
+  if (!attrs.perUnit || !multiplier) return null;
+  const foreign = (line.currency ?? BASE_CURRENCY) !== BASE_CURRENCY;
+  const rate = foreign ? (line.foreignAmount ?? 0) * (line.fxRate ?? 0) : (attrs.rate ?? 0);
+  return Math.round(rate * multiplier);
+}
+
 const joinParts = (parts: (string | number | false | null | undefined)[], separator: string) => parts.filter(Boolean).join(separator);
 const sector = (from?: string, to?: string, via?: string) => (from || to ? `${joinParts([from, to], " to ")}${via ? ` via ${via}` : ""}` : "");
 
@@ -110,8 +152,10 @@ const sector = (from?: string, to?: string, via?: string) => (from || to ? `${jo
  * "Other" lines are typed by hand, so they return null.
  */
 export function describeLine(kind: ItineraryLineKind, a: ItineraryLineAttrs = {}): { description: string; detail: string | null } | null {
-  const nights = nightsBetween(a.checkIn, a.checkOut);
+  const nights = stayNights(a);
+  const days = mealDays(a);
   const stay = joinParts([a.checkIn && `Check-in ${quoteDate(a.checkIn)}`, a.checkOut && `Check-out ${quoteDate(a.checkOut)}`, nights && `${nights} night${nights > 1 ? "s" : ""}`, a.pax && `PAX ${a.pax}`], " · ");
+  const meals = joinParts([a.checkIn && `From ${quoteDate(a.checkIn)}`, a.checkOut && `To ${quoteDate(a.checkOut)}`, days && `${days} day${days > 1 ? "s" : ""}`, a.pax && `PAX ${a.pax}`], " · ");
   let description: string;
   const lines: string[] = [];
 
@@ -130,7 +174,7 @@ export function describeLine(kind: ItineraryLineKind, a: ItineraryLineAttrs = {}
       break;
     case "MEALS":
       description = joinParts(["Meals", a.mealPlan, a.provider], " - ");
-      lines.push(stay);
+      lines.push(meals);
       break;
     case "TRANSPORT":
       description = joinParts(["Transport", a.vehicle], " - ");

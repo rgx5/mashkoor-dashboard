@@ -1,11 +1,11 @@
 import { MEAL_PLAN_LABELS, nightsBetween, type ItineraryLineAttrs, type ProductType } from "@mashkoor/shared";
-import { ArrowRight, BedDouble, Plane, Search } from "lucide-react";
+import { ArrowRight, BedDouble, Bus, Plane, Search } from "lucide-react";
 import { useState } from "react";
 import { formatDate, formatDateTime, formatINR } from "@/core/format";
 import { Button } from "@/core/ui/Button";
 import { inputClass } from "@/core/ui/form";
 import { Spinner } from "@/core/ui/Spinner";
-import { useQuoteFlights, useQuoteRooms } from "../api";
+import { useQuoteFlights, useQuoteRooms, useQuoteTransport } from "../api";
 
 const istDate = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(iso));
 
@@ -28,13 +28,13 @@ export function InventoryPicker({
   disabled,
   onPick,
 }: {
-  kind: "HOTEL" | "FLIGHT";
+  kind: "HOTEL" | "FLIGHT" | "TRANSPORT";
   attrs: ItineraryLineAttrs;
   productType: ProductType;
   disabled: boolean;
   onPick: (change: Partial<ItineraryLineAttrs>, unitPrice: number) => void;
 }) {
-  const alreadyFilled = kind === "HOTEL" ? Boolean(attrs.hotel) : Boolean(attrs.airline);
+  const alreadyFilled = kind === "HOTEL" ? Boolean(attrs.hotel) : kind === "FLIGHT" ? Boolean(attrs.airline) : Boolean(attrs.vehicle);
   const [open, setOpen] = useState(!alreadyFilled);
   const [city, setCity] = useState(attrs.city ?? "");
   const [checkIn, setCheckIn] = useState(attrs.checkIn ?? "");
@@ -42,6 +42,8 @@ export function InventoryPicker({
   const [origin, setOrigin] = useState(attrs.from?.length === 3 ? attrs.from.toUpperCase() : "");
   const [destination, setDestination] = useState(attrs.to?.length === 3 ? attrs.to.toUpperCase() : "");
   const [from, setFrom] = useState(attrs.departureDate ?? "");
+  const [fromPlace, setFromPlace] = useState(attrs.from ?? "");
+  const [toPlace, setToPlace] = useState(attrs.to ?? "");
 
   const nights = nightsBetween(checkIn, checkOut);
   const hotelDatesBad = Boolean(checkIn && checkOut && checkOut <= checkIn);
@@ -51,24 +53,27 @@ export function InventoryPicker({
     open && kind === "FLIGHT",
   );
 
+  const transport = useQuoteTransport({ kind: "TRANSPORT", productType, fromPlace: fromPlace.trim() || undefined, toPlace: toPlace.trim() || undefined }, open && kind === "TRANSPORT");
+
   if (disabled) return null;
 
   if (!open) {
     return (
       <Button type="button" size="sm" variant="secondary" onClick={() => setOpen(true)}>
-        <Search className="h-4 w-4" aria-hidden /> Search again in our {kind === "HOTEL" ? "hotels" : "flights"}
+        <Search className="h-4 w-4" aria-hidden /> Search again in our {kind === "HOTEL" ? "hotels" : kind === "FLIGHT" ? "flights" : "transport"}
       </Button>
     );
   }
 
-  const query = kind === "HOTEL" ? rooms : flights;
-  const Icon = kind === "HOTEL" ? BedDouble : Plane;
+  const query = kind === "HOTEL" ? rooms : kind === "FLIGHT" ? flights : transport;
+  const Icon = kind === "HOTEL" ? BedDouble : kind === "FLIGHT" ? Plane : Bus;
+  const noun = kind === "HOTEL" ? "hotels" : kind === "FLIGHT" ? "flights" : "transport";
 
   return (
     <div className="overflow-hidden rounded-xl border border-plum-200 bg-white">
       <div className="flex items-center justify-between gap-2 border-b border-plum-100 bg-plum-50/60 px-3.5 py-2.5">
         <p className="flex items-center gap-2 text-sm font-semibold text-plum-800">
-          <Icon className="h-4 w-4" aria-hidden /> Pick from our {kind === "HOTEL" ? "hotels" : "flights"}
+          <Icon className="h-4 w-4" aria-hidden /> Pick from our {noun}
         </p>
         {alreadyFilled && (
           <button type="button" onClick={() => setOpen(false)} className="text-xs font-semibold text-plum-700 hover:underline">
@@ -88,6 +93,15 @@ export function InventoryPicker({
             </Filter>
             <Filter label="Check-out">
               <input type="date" className={inputClass} min={checkIn || undefined} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
+            </Filter>
+          </div>
+        ) : kind === "TRANSPORT" ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Filter label="From">
+              <input className={inputClass} placeholder="Any — e.g. Jeddah airport" value={fromPlace} onChange={(e) => setFromPlace(e.target.value)} />
+            </Filter>
+            <Filter label="To">
+              <input className={inputClass} placeholder="Any — e.g. Makkah" value={toPlace} onChange={(e) => setToPlace(e.target.value)} />
             </Filter>
           </div>
         ) : (
@@ -112,7 +126,7 @@ export function InventoryPicker({
         )}
         {!query.isFetching && !hotelDatesBad && query.data?.length === 0 && (
           <p className="rounded-lg bg-surface px-3 py-2.5 text-sm text-ink-500">
-            Nothing in our inventory matches. Clear a filter to see more, or close this and type the {kind === "HOTEL" ? "hotel" : "flight"} by hand below.
+            Nothing in our inventory matches. Clear a filter to see more, or close this and type the {kind === "HOTEL" ? "hotel" : kind === "FLIGHT" ? "flight" : "vehicle"} by hand below.
           </p>
         )}
 
@@ -141,6 +155,37 @@ export function InventoryPicker({
                     size="sm"
                     onClick={() => {
                       onPick({ hotel: r.hotel.name, city: r.hotel.city, roomType: r.roomType.name, ratePeriodId: r.stay.id, checkIn: checkIn || attrs.checkIn, checkOut: checkOut || attrs.checkOut }, r.price * (nights ?? 1));
+                      setOpen(false);
+                    }}
+                  >
+                    Use this
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : kind === "TRANSPORT" ? (
+          <ul className="max-h-72 space-y-2 overflow-y-auto">
+            {transport.data?.map((t) => (
+              <li key={t.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line p-3">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-ink-900">
+                    {t.fromPlace} <ArrowRight className="h-3.5 w-3.5 text-ink-500" aria-hidden /> {t.toPlace}
+                  </p>
+                  <p className="text-xs text-ink-500">
+                    {t.vehicleType} · {t.seats} seats
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-ink-900">{formatINR(t.price)}</p>
+                    <p className="text-xs text-ink-500">per vehicle</p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      onPick({ vehicle: t.vehicleType, from: t.fromPlace, to: t.toPlace }, t.price);
                       setOpen(false);
                     }}
                   >

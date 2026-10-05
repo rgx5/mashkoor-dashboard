@@ -15,6 +15,7 @@ const FORMATS = {
   enquiry: { prefix: "MKE", yearly: true, pad: 6 },
   invoice: { prefix: "MKV", yearly: true, pad: 6 },
   finance: { prefix: "MKF", yearly: true, pad: 6 },
+  forex: { prefix: "MKX", yearly: true, pad: 6 },
 } as const;
 
 export type SequenceKey = keyof typeof FORMATS;

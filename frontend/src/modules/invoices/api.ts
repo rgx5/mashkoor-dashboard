@@ -1,4 +1,4 @@
-import type { InvoiceDetail, InvoiceInput, InvoiceListQuery, InvoiceRow, Paginated } from "@mashkoor/shared";
+import type { InvoiceDetail, InvoiceInput, InvoiceListQuery, InvoicePrefill, InvoiceRow, InvoiceUpdateInput, Paginated } from "@mashkoor/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, download, saveFile } from "@/core/api/client";
 
@@ -14,11 +14,16 @@ function useInvalidating<TArgs, TResult>(fn: (args: TArgs) => Promise<TResult>) 
   return useMutation({ mutationFn: fn, onSuccess: () => client.invalidateQueries({ queryKey: ["admin"] }) });
 }
 
+export type PrefillSource = { bookingId?: string; quotationId?: string };
+/** What the invoice editor starts from for a booking or a quotation. */
+export const fetchInvoicePrefill = (source: PrefillSource) => admin.get<InvoicePrefill>("/invoices/prefill", { ...source });
+export const useInvoicePrefill = (source: PrefillSource) => useQuery({ queryKey: [...key, "prefill", source], queryFn: () => fetchInvoicePrefill(source), enabled: Boolean(source.bookingId || source.quotationId), staleTime: 0, gcTime: 0 });
+export const useUpdateInvoice = () => useInvalidating(({ id, input }: { id: string; input: InvoiceUpdateInput }) => admin.patch<InvoiceDetail>(`/invoices/${id}`, input));
 export const useCreateInvoice = () => useInvalidating((input: InvoiceInput) => admin.post<InvoiceDetail>("/invoices", input));
 export const useSendInvoice = () => useInvalidating((id: string) => admin.post<{ sent: boolean; reason?: string }>(`/invoices/${id}/send`));
 export const useCancelInvoice = () => useInvalidating((id: string) => admin.post<InvoiceDetail>(`/invoices/${id}/cancel`));
 
 /** Downloads the invoice PDF. */
-export async function downloadInvoice(id: string, fileName: string) {
-  saveFile(await download("admin", `/api/v1/admin/invoices/${id}/pdf`), fileName);
+export async function downloadInvoice(id: string, fileName: string, breakup = true) {
+  saveFile(await download("admin", `/api/v1/admin/invoices/${id}/pdf`, { breakup }), fileName);
 }

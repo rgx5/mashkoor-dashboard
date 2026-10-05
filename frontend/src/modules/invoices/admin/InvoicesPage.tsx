@@ -1,7 +1,9 @@
 import { INVOICE_PAYMENT_STATE_LABELS, INVOICE_PAYMENT_STATES, type InvoiceRow } from "@mashkoor/shared";
-import { ReceiptText } from "lucide-react";
+import { Plus, ReceiptText } from "lucide-react";
 import { Link, useSearchParams } from "react-router";
 import { errorMessage } from "@/core/api/errors";
+import { useAbility } from "@/core/rbac/ability";
+import { buttonClass } from "@/core/ui/Button";
 import { formatDate, formatINR } from "@/core/format";
 import { DataTable, type Column } from "@/core/ui/DataTable";
 import { inputClass } from "@/core/ui/form";
@@ -11,6 +13,7 @@ import { useInvoices } from "../api";
 export const invoiceTone = (state: InvoiceRow["state"]) => (state === "PAID" ? "green" : state === "CANCELLED" ? "red" : state === "PARTIAL" ? "amber" : "plum");
 
 export function InvoicesPage() {
+  const ability = useAbility("admin");
   const [params, setParams] = useSearchParams();
   const page = Number(params.get("page") ?? 1);
   const q = params.get("q") ?? "";
@@ -56,7 +59,17 @@ export function InvoicesPage() {
 
   return (
     <>
-      <PageHeader title="Invoices" description="Raised from accepted quotations. Record each payment against its invoice.">
+      <PageHeader
+        title="Invoices"
+        description="Write an invoice from scratch or from a quotation, and record each payment against it."
+        actions={
+          ability.can("create", "Invoice") && (
+            <Link to="/admin/invoices/new" className={buttonClass("primary")}>
+              <Plus className="h-4 w-4" aria-hidden /> New invoice
+            </Link>
+          )
+        }
+      >
         <input type="search" defaultValue={q} onChange={(e) => set("q", e.target.value)} placeholder="Invoice, customer or booking" className={inputClass} />
         <select aria-label="Status" value={state} onChange={(e) => set("state", e.target.value)} className={inputClass}>
           <option value="">All statuses</option>
@@ -73,7 +86,7 @@ export function InvoicesPage() {
         rowKey={(i) => i.id}
         loading={isLoading}
         error={error ? errorMessage(error) : null}
-        empty={{ icon: ReceiptText, title: "No invoices yet", description: "Open a lead that is with accounts and click Create invoice." }}
+        empty={{ icon: ReceiptText, title: "No invoices yet", description: "Click New invoice, or open a quotation or a lead that is with accounts and create one from there." }}
         page={page}
         pageSize={data?.meta.pageSize ?? 25}
         total={data?.meta.total ?? 0}

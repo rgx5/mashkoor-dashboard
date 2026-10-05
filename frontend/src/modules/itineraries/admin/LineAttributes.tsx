@@ -1,4 +1,4 @@
-import { BASE_CURRENCY, describeLine, LINE_MEAL_PLANS, LINE_PAX_TYPES, nightsBetween, QUOTE_ROOM_TYPES, type ItineraryLine, type ItineraryLineAttrs, type ProductType } from "@mashkoor/shared";
+import { addDays, BASE_CURRENCY, daysBetweenInclusive, describeLine, LINE_MEAL_PLANS, LINE_PAX_TYPES, mealDays, nightsBetween, QUOTE_ROOM_TYPES, stayNights, type ItineraryLine, type ItineraryLineAttrs, type ProductType } from "@mashkoor/shared";
 import { SelectField, TextField } from "@/core/ui/form";
 import { InventoryPicker } from "./InventoryPicker";
 
@@ -25,7 +25,7 @@ export function LineAttributes({ line, disabled, productType = "HOLIDAY", onChan
   };
   /** A hotel or flight picked from inventory: fill the fields in and take the price (in rupees) from the pricing rules. */
   const pick = (change: Partial<ItineraryLineAttrs>, unitPrice: number) => {
-    const attrs = { ...a, ...change };
+    const attrs = { ...a, ...change, nights: nightsBetween(change.checkIn, change.checkOut) ?? a.nights, perUnit: false };
     onChange({ attrs, ...describeLine(kind, attrs), unitPrice, currency: BASE_CURRENCY, foreignAmount: null, fxRate: null });
   };
   const text = (key: keyof ItineraryLineAttrs, label: string, placeholder?: string, list?: string) => (
@@ -33,11 +33,19 @@ export function LineAttributes({ line, disabled, productType = "HOLIDAY", onChan
   );
   const date = (key: keyof ItineraryLineAttrs, label: string) => <TextField label={label} type="date" disabled={disabled} value={(a[key] as string | undefined) ?? ""} onChange={(e) => set({ [key]: e.target.value })} />;
   const pax = (label = "People") => <TextField label={label} type="number" min={1} disabled={disabled} value={a.pax ?? ""} onChange={(e) => set({ pax: e.target.value === "" ? null : Number(e.target.value) })} />;
-  const nights = nightsBetween(a.checkIn, a.checkOut);
+  const num = (value: string) => (value === "" ? null : Math.max(0, Math.floor(Number(value))) || null);
+
+  // Dates and lengths stay in step: type the check-in and the nights and the check-out follows, or set both dates and the nights follow.
+  const stayIn = (checkIn: string) => set({ checkIn, ...(a.nights && checkIn ? { checkOut: addDays(checkIn, a.nights) } : {}) });
+  const stayNightsTo = (nights: number | null) => set({ nights, ...(a.checkIn && nights ? { checkOut: addDays(a.checkIn, nights) } : {}) });
+  const stayOut = (checkOut: string) => set({ checkOut, nights: nightsBetween(a.checkIn, checkOut) ?? a.nights });
+  const mealsFrom = (checkIn: string) => set({ checkIn, ...(a.days && checkIn ? { checkOut: addDays(checkIn, a.days - 1) } : {}) });
+  const mealsDaysTo = (days: number | null) => set({ days, ...(a.checkIn && days ? { checkOut: addDays(a.checkIn, days - 1) } : {}) });
+  const mealsTo = (checkOut: string) => set({ checkOut, days: daysBetweenInclusive(a.checkIn, checkOut) ?? a.days });
 
   return (
     <div className="mt-3 space-y-3 rounded-lg bg-surface p-3">
-      {(kind === "HOTEL" || kind === "FLIGHT") && <InventoryPicker kind={kind} attrs={a} productType={productType} disabled={disabled} onPick={pick} />}
+      {(kind === "HOTEL" || kind === "FLIGHT" || kind === "TRANSPORT") && <InventoryPicker kind={kind} attrs={a} productType={productType} disabled={disabled} onPick={pick} />}
       <div className="grid gap-3 sm:grid-cols-3">
         {kind === "FLIGHT" && (
           <>
@@ -76,8 +84,9 @@ export function LineAttributes({ line, disabled, productType = "HOLIDAY", onChan
                 <option key={t} value={t} />
               ))}
             </datalist>
-            {date("checkIn", "Check-in")}
-            {date("checkOut", "Check-out")}
+            <TextField label="Check-in" type="date" disabled={disabled} value={a.checkIn ?? ""} onChange={(e) => stayIn(e.target.value)} />
+            <TextField label="Nights" type="number" min={1} disabled={disabled} value={stayNights(a) ?? ""} onChange={(e) => stayNightsTo(num(e.target.value))} />
+            <TextField label="Check-out" type="date" min={a.checkIn || undefined} disabled={disabled} value={a.checkOut ?? ""} onChange={(e) => stayOut(e.target.value)} />
             {pax()}
           </>
         )}
@@ -94,8 +103,9 @@ export function LineAttributes({ line, disabled, productType = "HOLIDAY", onChan
             </SelectField>
             {text("provider", "Hotel / provider", "Optional")}
             {pax()}
-            {date("checkIn", "From")}
-            {date("checkOut", "To")}
+            <TextField label="From" type="date" disabled={disabled} value={a.checkIn ?? ""} onChange={(e) => mealsFrom(e.target.value)} />
+            <TextField label="Total days" type="number" min={1} hint="Both dates counted" disabled={disabled} value={mealDays(a) ?? ""} onChange={(e) => mealsDaysTo(num(e.target.value))} />
+            <TextField label="To" type="date" min={a.checkIn || undefined} disabled={disabled} value={a.checkOut ?? ""} onChange={(e) => mealsTo(e.target.value)} />
           </>
         )}
 
@@ -121,12 +131,6 @@ export function LineAttributes({ line, disabled, productType = "HOLIDAY", onChan
           </>
         )}
       </div>
-
-      {(kind === "HOTEL" || kind === "MEALS") && nights != null && (
-        <p className="text-xs text-ink-500">
-          {nights} night{nights > 1 ? "s" : ""} — worked out from the dates.
-        </p>
-      )}
 
       <TextField label="Extra note" hint="Optional, printed under the line" disabled={disabled} value={a.notes ?? ""} onChange={(e) => set({ notes: e.target.value })} />
 

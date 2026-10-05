@@ -84,7 +84,7 @@ export class FinanceService {
     const range = dateFilter(from, to);
     const ranged = Object.keys(range).length > 0;
 
-    const [payments, topups, manual] = await Promise.all([
+    const [payments, topups, manual, forexTxns, forexBuys] = await Promise.all([
       this.prisma.payment.findMany({
         where: { status: "VERIFIED", ...(ranged ? { OR: [{ verifiedAt: range }, { verifiedAt: null, createdAt: range }] } : {}) },
         include: { booking: { select: { id: true, refNo: true, customer: { select: { fullName: true } } } }, invoice: { select: { id: true, refNo: true } } },
@@ -100,9 +100,21 @@ export class FinanceService {
         include: manualInclude,
         take: LIMIT,
       }),
+      // Forex desk: customer sales and buy-backs, and stock bought from dealers. Cancelled ones never moved any money.
+      this.prisma.forexTransaction.findMany({ where: { cancelledAt: null, ...(ranged ? { createdAt: range } : {}) }, take: LIMIT }),
+      this.prisma.forexPurchase.findMany({
+        where: { cancelledAt: null, ...(from || to ? { purchaseDate: { ...(from ? { gte: fromDateOnly(from)! } : {}), ...(to ? { lte: fromDateOnly(to)! } : {}) } } : {}) },
+        take: LIMIT,
+      }),
     ]);
 
-    const people = await this.userNames([...payments.map((p) => p.verifiedById ?? p.recordedById), ...topups.map((t) => t.createdById), ...manual.map((m) => m.recordedById)]);
+    const people = await this.userNames([
+      ...payments.map((p) => p.verifiedById ?? p.recordedById),
+      ...topups.map((t) => t.createdById),
+      ...manual.map((m) => m.recordedById),
+      ...forexTxns.map((t) => t.createdById),
+      ...forexBuys.map((b) => b.createdById),
+    ]);
 
     const rows: LedgerRow[] = [
       ...payments.map((p): LedgerRow => {
@@ -159,6 +171,57 @@ export class FinanceService {
         };
       }),
       ...manual.map((m): LedgerRow => this.manualRow(m, people)),
+      ...forexTxns.map((t): LedgerRow => {
+        const selling = t.type === "SELL";
+        return {
+          key: `FOREX:${t.id}`,
+          source: "FOREX",
+          sourceId: t.id,
+          entryNo: t.refNo,
+          date: istDate(t.createdAt),
+          at: t.createdAt.toISOString(),
+          direction: selling ? "IN" : "OUT",
+          amount: t.inrAmount,
+          method: t.paymentMethod,
+          kind: selling ? "FOREX_SALE" : "FOREX_BUYBACK",
+          party: t.customerName,
+          description: `${selling ? "Sold" : "Bought"} ${t.foreignAmount.toLocaleString("en-IN")} ${t.currency} at ₹${t.rate}`,
+          reference: t.reference,
+          booking: null,
+          invoice: null,
+          partner: null,
+          recordedBy: people.get(t.createdById ?? "") ?? null,
+          hasReceipt: false,
+          reversed: false,
+          reversalOf: null,
+          notes: t.notes,
+        };
+      }),
+      ...forexBuys.map(
+        (b): LedgerRow => ({
+          key: `FOREX:P${b.id}`,
+          source: "FOREX",
+          sourceId: b.id,
+          entryNo: null,
+          date: toDateOnly(b.purchaseDate)!,
+          at: b.createdAt.toISOString(),
+          direction: "OUT",
+          amount: b.inrAmount,
+          method: b.paymentMethod,
+          kind: "FOREX_PURCHASE",
+          party: b.supplier,
+          description: `Bought ${b.foreignAmount.toLocaleString("en-IN")} ${b.currency} at ₹${b.rate}`,
+          reference: b.reference,
+          booking: null,
+          invoice: null,
+          partner: null,
+          recordedBy: people.get(b.createdById ?? "") ?? null,
+          hasReceipt: false,
+          reversed: false,
+          reversalOf: null,
+          notes: b.notes,
+        }),
+      ),
     ];
 
     return rows.sort((a, b) => (a.date === b.date ? b.at.localeCompare(a.at) : b.date.localeCompare(a.date)));
@@ -261,15 +324,19 @@ export class FinanceService {
   /** What each method should hold: every movement from the beginning up to the end of the period. Done in the database, not row by row. */
   private async balancesUpTo(to: string): Promise<MethodTotals[]> {
     const cutoff = endOf(to);
-    const [payments, manual, topups] = await Promise.all([
+    const [payments, manual, topups, forexTxns, forexBuys] = await Promise.all([
       this.prisma.payment.groupBy({ by: ["method", "direction"], where: { status: "VERIFIED", OR: [{ verifiedAt: { lte: cutoff } }, { verifiedAt: null, createdAt: { lte: cutoff } }] }, _sum: { amount: true } }),
       this.prisma.financeEntry.groupBy({ by: ["method", "direction"], where: { entryDate: { lte: fromDateOnly(to)! } }, _sum: { amount: true } }),
       this.prisma.walletLedgerEntry.aggregate({ where: { type: "TOPUP", createdAt: { lte: cutoff } }, _sum: { amount: true } }),
+      this.prisma.forexTransaction.groupBy({ by: ["paymentMethod", "type"], where: { cancelledAt: null, createdAt: { lte: cutoff } }, _sum: { inrAmount: true } }),
+      this.prisma.forexPurchase.groupBy({ by: ["paymentMethod"], where: { cancelledAt: null, purchaseDate: { lte: fromDateOnly(to)! } }, _sum: { inrAmount: true } }),
     ]);
     return this.methodTotals([
       ...payments.map((p) => ({ method: p.method, direction: (p.direction === "REFUND" ? "OUT" : "IN") as "IN" | "OUT", amount: p._sum.amount ?? 0 })),
       ...manual.map((m) => ({ method: m.method, direction: m.direction, amount: m._sum.amount ?? 0 })),
       { method: "OTHER", direction: "IN", amount: topups._sum.amount ?? 0 },
+      ...forexTxns.map((t) => ({ method: t.paymentMethod, direction: (t.type === "SELL" ? "IN" : "OUT") as "IN" | "OUT", amount: t._sum.inrAmount ?? 0 })),
+      ...forexBuys.map((b) => ({ method: b.paymentMethod, direction: "OUT" as const, amount: b._sum.inrAmount ?? 0 })),
     ]);
   }
 

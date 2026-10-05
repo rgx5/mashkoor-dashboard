@@ -17,6 +17,10 @@ import type {
   RoomTypeData,
   RoomTypeRow,
   RoomTypeUpdateData,
+  TransportListQuery,
+  TransportOptionInput,
+  TransportOptionRow,
+  TransportOptionUpdateData,
 } from "@mashkoor/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/core/api/client";
@@ -60,3 +64,9 @@ export const useRoomAvailability = (query: InventorySearchQuery, enabled: boolea
   useQuery({ queryKey: [...inventoryKey, "search", query], queryFn: () => admin.get<RoomAvailability[]>("/inventory/search", { ...query }), enabled });
 export const useFlightAvailability = (query: InventorySearchQuery, enabled: boolean) =>
   useQuery({ queryKey: [...inventoryKey, "search", query], queryFn: () => admin.get<FlightSeatBlockRow[]>("/inventory/search", { ...query }), enabled });
+
+export const useTransportOptions = (filters: Partial<TransportListQuery>) =>
+  useQuery({ queryKey: [...inventoryKey, "transport", filters], queryFn: () => admin.get<Paginated<TransportOptionRow>>("/transport-inventory", { ...filters }) });
+export const useCreateTransportOption = () => useInvalidating((input: TransportOptionInput) => admin.post<TransportOptionRow>("/transport-inventory", input));
+export const useUpdateTransportOption = () => useInvalidating(({ id, input }: { id: string; input: TransportOptionUpdateData }) => admin.patch<TransportOptionRow>(`/transport-inventory/${id}`, input));
+export const useDeleteTransportOption = () => useInvalidating((id: string) => admin.delete<void>(`/transport-inventory/${id}`));

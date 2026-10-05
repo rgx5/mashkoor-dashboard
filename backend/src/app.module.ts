@@ -21,6 +21,7 @@ import { CustomersModule } from "./modules/customers/customers.module";
 import { DashboardModule } from "./modules/dashboard/dashboard.module";
 import { InventoryModule } from "./modules/inventory/inventory.module";
 import { FinanceModule } from "./modules/finance/finance.module";
+import { ForexModule } from "./modules/forex/forex.module";
 import { InvoicesModule } from "./modules/invoices/invoices.module";
 import { ItinerariesModule } from "./modules/itineraries/itineraries.module";
 import { LeadsModule } from "./modules/leads/leads.module";
@@ -72,6 +73,7 @@ const isProduction = process.env.NODE_ENV === "production";
     CurrenciesModule,
     InvoicesModule,
     FinanceModule,
+    ForexModule,
     ContactsModule,
     TripExperienceModule,
   ],

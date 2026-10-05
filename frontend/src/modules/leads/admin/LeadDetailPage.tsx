@@ -18,7 +18,7 @@ import {
 import { AlertTriangle, CalendarRange, Check, Landmark, Lock, Mail, MessageCircle, Pencil, Phone, ReceiptText, UserPlus, UserRoundCheck } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import type { z } from "zod";
 import { ApiError } from "@/core/api/client";
@@ -36,7 +36,6 @@ import { FullPageSpinner } from "@/core/ui/Spinner";
 import { Timeline } from "@/modules/activities";
 import { DuplicateNotice, type DuplicateMatch } from "@/modules/customers";
 import { TasksPanel } from "@/modules/tasks";
-import { useCreateInvoice } from "@/modules/invoices";
 import { StaffSelect } from "@/modules/users";
 import { useAssignAccountant, useAssignLead, useConvertLead, useLead, useUpdateLead } from "../api";
 import { StageChangeDialog, type PendingStageChange } from "../StageChangeDialog";
@@ -239,7 +238,6 @@ export function LeadDetailPage() {
 function PaymentCard({ lead }: { lead: LeadDetail }) {
   const ability = useAbility("admin");
   const assign = useAssignAccountant();
-  const [invoicing, setInvoicing] = useState(false);
   const atPayment = lead.stage === "WAITING_PAYMENT";
   if (!atPayment && !lead.accountant && !lead.booking && !lead.invoice) return null;
 
@@ -284,52 +282,13 @@ function PaymentCard({ lead }: { lead: LeadDetail }) {
         ) : (
           lead.booking &&
           canInvoice && (
-            <Button size="sm" className="w-full" onClick={() => setInvoicing(true)}>
+            <Link to={`/admin/invoices/new?bookingId=${lead.booking.id}`} className={buttonClass("primary", "sm", "w-full")}>
               <ReceiptText className="h-4 w-4" aria-hidden /> Create invoice
-            </Button>
+            </Link>
           )
         )}
       </div>
-      {lead.booking && <CreateInvoiceDialog bookingId={lead.booking.id} open={invoicing} onClose={() => setInvoicing(false)} />}
     </Card>
-  );
-}
-
-function CreateInvoiceDialog({ bookingId, open, onClose }: { bookingId: string; open: boolean; onClose: () => void }) {
-  const navigate = useNavigate();
-  const create = useCreateInvoice();
-  const [dueDate, setDueDate] = useState("");
-  const [notes, setNotes] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async () => {
-    setError(null);
-    try {
-      const invoice = await create.mutateAsync({ bookingId, dueDate: dueDate || null, notes: notes || null });
-      toast.success(`Invoice ${invoice.refNo} created`);
-      onClose();
-      navigate(`/admin/invoices/${invoice.id}`);
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} title="Create invoice" description="The lines and total are copied from the accepted quotation.">
-      <div className="space-y-4">
-        <FormError message={error} />
-        <TextField label="Due by" type="date" hint="Optional" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-        <TextareaField label="Note on the invoice" hint="Optional" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={submit} loading={create.isPending}>
-            Create invoice
-          </Button>
-        </div>
-      </div>
-    </Dialog>
   );
 }
 

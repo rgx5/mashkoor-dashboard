@@ -3,7 +3,7 @@ import type { AppModule } from "@/core/modules/types";
 
 export { useCurrencies } from "./api";
 
-/** Currencies a quotation line can be priced in, and today's rate to INR. */
+/** Currencies a quotation, hotel rate or transport price can be in, the reference rate to INR, and how it moved. */
 export const currenciesModule: AppModule = {
   id: "currencies",
   admin: {

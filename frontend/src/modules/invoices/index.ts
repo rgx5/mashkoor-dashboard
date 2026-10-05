@@ -10,6 +10,8 @@ export const invoicesModule: AppModule = {
     nav: [{ label: "Invoices", to: "invoices", icon: ReceiptText, can: ["read", "Invoice"], feature: "invoices", group: "Operations" }],
     routes: [
       { path: "invoices", lazy: async () => ({ Component: (await import("./admin/InvoicesPage")).InvoicesPage }) },
+      { path: "invoices/new", lazy: async () => ({ Component: (await import("./admin/InvoiceEditorPage")).InvoiceEditorPage }) },
+      { path: "invoices/:id/edit", lazy: async () => ({ Component: (await import("./admin/InvoiceEditorPage")).InvoiceEditorPage }) },
       { path: "invoices/:id", lazy: async () => ({ Component: (await import("./admin/InvoiceDetailPage")).InvoiceDetailPage }) },
     ],
   },

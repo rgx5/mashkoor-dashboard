@@ -1,5 +1,5 @@
-import { INVOICE_PAYMENT_STATE_LABELS, PAYMENT_METHOD_LABELS, PAYMENT_STATUS_LABELS, type InvoicePaymentEntry } from "@mashkoor/shared";
-import { AlertTriangle, Check, Download, Mail, Plus, X } from "lucide-react";
+import { INVOICE_PAYMENT_STATE_LABELS, lineTotal, PAYMENT_METHOD_LABELS, PAYMENT_STATUS_LABELS, type InvoicePaymentEntry } from "@mashkoor/shared";
+import { AlertTriangle, Check, Mail, Pencil, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
@@ -7,6 +7,7 @@ import { errorMessage, withToast } from "@/core/api/errors";
 import { formatDate, formatDateTime, formatINR } from "@/core/format";
 import { useAbility } from "@/core/rbac/ability";
 import { Button, buttonClass } from "@/core/ui/Button";
+import { PdfDownloadMenu } from "@/core/ui/PdfDownloadMenu";
 import { cn } from "@/core/ui/cn";
 import { Badge, Card, EmptyState } from "@/core/ui/layout";
 import { BackLink, DetailList } from "@/core/ui/misc";
@@ -68,6 +69,7 @@ export function InvoiceDetailPage() {
               <Badge tone={invoiceTone(invoice.state)}>{INVOICE_PAYMENT_STATE_LABELS[invoice.state]}</Badge>
               {invoice.sentAt && <Badge tone="neutral">Sent {formatDate(invoice.sentAt)}</Badge>}
             </div>
+            {invoice.subject && <p className="mt-1 text-sm font-medium text-ink-700">{invoice.subject}</p>}
             <p className="mt-1 text-sm text-ink-500">
               <Link to={`/admin/customers/${invoice.customer.id}`} className="font-medium text-plum-700 hover:underline">
                 {invoice.customer.fullName}
@@ -88,9 +90,16 @@ export function InvoiceDetailPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" size="sm" onClick={() => void withToast(downloadInvoice(invoice.id, `${invoice.refNo}.pdf`), "Invoice downloaded")}>
-              <Download className="h-4 w-4" aria-hidden /> PDF
-            </Button>
+            <PdfDownloadMenu
+              withHint="Every item with its own price, discount and tax"
+              withoutHint="The items, and one total for all of them"
+              onDownload={(breakup) => void withToast(downloadInvoice(invoice.id, `${invoice.refNo}${breakup ? "" : "-total-only"}.pdf`, breakup), "Invoice downloaded")}
+            />
+            {canEdit && !cancelled && (
+              <Link to={`/admin/invoices/${invoice.id}/edit`} className={buttonClass("secondary", "sm")}>
+                <Pencil className="h-4 w-4" aria-hidden /> Edit
+              </Link>
+            )}
             {canEdit && !cancelled && (
               <Button variant="secondary" size="sm" loading={send.isPending} onClick={sendInvoice}>
                 <Mail className="h-4 w-4" aria-hidden /> {invoice.sentAt ? "Send again" : "Email to customer"}
@@ -146,10 +155,20 @@ export function InvoiceDetailPage() {
               <tbody className="divide-y divide-line">
                 {invoice.lines.map((l, i) => (
                   <tr key={i}>
-                    <td className="px-4 py-2.5">{l.description}</td>
+                    <td className="px-4 py-2.5">
+                      <p className="font-medium">{l.description}</p>
+                      {l.detail && <p className="text-xs whitespace-pre-line text-ink-500">{l.detail}</p>}
+                      {((l.discount ?? 0) > 0 || (l.taxPercent ?? 0) > 0) && (
+                        <p className="text-xs text-ink-500">
+                          {(l.discount ?? 0) > 0 && `Less ${formatINR(l.discount ?? 0)}`}
+                          {(l.discount ?? 0) > 0 && (l.taxPercent ?? 0) > 0 && " · "}
+                          {(l.taxPercent ?? 0) > 0 && `Tax ${l.taxPercent}%`}
+                        </p>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">{l.quantity}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums">{formatINR(l.unitPrice)}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{formatINR(l.quantity * l.unitPrice)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{formatINR(lineTotal(l))}</td>
                   </tr>
                 ))}
                 {invoice.adjustment !== 0 && (
@@ -225,6 +244,12 @@ export function InvoiceDetailPage() {
               ]}
             />
             {invoice.notes && <p className="mt-4 rounded-lg bg-surface p-3 text-sm whitespace-pre-line text-ink-700">{invoice.notes}</p>}
+            {invoice.terms && (
+              <div className="mt-4">
+                <p className="mb-1 text-xs font-semibold text-ink-500">Terms</p>
+                <p className="text-xs whitespace-pre-line text-ink-700">{invoice.terms}</p>
+              </div>
+            )}
           </Card>
         </aside>
       </div>

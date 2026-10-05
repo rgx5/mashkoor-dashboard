@@ -1,5 +1,5 @@
-import { Body, Delete, Get, Param, Patch, Post } from "@nestjs/common";
-import { currencyInputSchema, currencyUpdateSchema, type CurrencyData, type CurrencyUpdateData } from "@mashkoor/shared";
+import { Body, Delete, Get, Param, Patch, Post, Put } from "@nestjs/common";
+import { currencyInputSchema, currencyRatesUpdateSchema, currencyUpdateSchema, type CurrencyData, type CurrencyRatesUpdateData, type CurrencyUpdateData } from "@mashkoor/shared";
 import { CurrentUser, PortalController } from "../../../core/auth/decorators";
 import type { RequestUser } from "../../../core/auth/request-user";
 import { ZodPipe } from "../../../core/http/zod.pipe";
@@ -15,6 +15,20 @@ export class AdminCurrenciesController {
   @CheckAbility("read", "Currency")
   list(@CurrentUser() actor: RequestUser) {
     return this.currencies.list(actor);
+  }
+
+  /** Today's rates for several currencies at once. */
+  @Put("rates")
+  @CheckAbility("manage", "Currency")
+  updateRates(@CurrentUser() actor: RequestUser, @Body(new ZodPipe(currencyRatesUpdateSchema)) body: CurrencyRatesUpdateData) {
+    return this.currencies.updateRates(actor, body);
+  }
+
+  /** Every rate this currency has had, oldest first. */
+  @Get(":code/history")
+  @CheckAbility("read", "Currency")
+  history(@CurrentUser() actor: RequestUser, @Param("code") code: string) {
+    return this.currencies.history(actor, code.toUpperCase());
   }
 
   @Post()

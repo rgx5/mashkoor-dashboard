@@ -1,4 +1,4 @@
-import { BASE_CURRENCY, describeLine, ITINERARY_LINE_KIND_LABELS, ITINERARY_LINE_KINDS, lineTotal, type CurrencyRow, type ItineraryLine, type ItineraryLineKind, type ProductType } from "@mashkoor/shared";
+import { BASE_CURRENCY, describeLine, ITINERARY_LINE_KIND_LABELS, ITINERARY_LINE_KINDS, lineMultiplier, lineTotal, ratedUnitPrice, type CurrencyRow, type ItineraryLine, type ItineraryLineKind, type ProductType } from "@mashkoor/shared";
 import { AlertCircle, BedDouble, Bus, ChevronDown, Copy, FileCheck2, Package, Plane, Trash2, Utensils, type LucideIcon } from "lucide-react";
 import { formatINR } from "@/core/format";
 import { cn } from "@/core/ui/cn";
@@ -46,13 +46,30 @@ interface Props {
  * A priced line on a quotation. Collapsed it is a single row — number, type, what it is, quantity × price, total — so a long
  * quotation can be scanned and reordered; opened it shows the fields grouped as Item, then Price.
  */
-export function LineItem({ index, count, line: l, open, bad, canEdit, productType, currencies, onToggle, onChange, onRemove, onDuplicate, onMove }: Props) {
+export function LineItem({ index, count, line: l, open, bad, canEdit, productType, currencies, onToggle, onChange: apply, onRemove, onDuplicate, onMove }: Props) {
+  // A hotel or meals line priced per night / per day re-works its unit price whenever the rate or the length of stay changes.
+  const onChange = (changes: Partial<ItineraryLine>) => {
+    const merged = { ...l, ...changes };
+    const rated = ratedUnitPrice(merged);
+    apply(rated !== null && rated !== merged.unitPrice ? { ...changes, unitPrice: rated } : changes);
+  };
   const kind = l.kind ?? "OTHER";
   const Icon = KIND_ICON[kind];
   const problem = lineProblem(l);
   const currency = l.currency ?? BASE_CURRENCY;
   const foreign = currency !== BASE_CURRENCY;
   const total = lineTotal(l);
+  const rateable = kind === "HOTEL" || kind === "MEALS";
+  const multiplier = lineMultiplier(kind, l.attrs);
+  const rated = rateable && Boolean(l.attrs?.perUnit);
+  const word = kind === "HOTEL" ? "night" : "day";
+  const unitWord = kind === "HOTEL" ? "room" : "person";
+  const setRated = (on: boolean) => {
+    const attrs = { ...l.attrs, perUnit: on };
+    // Switching on keeps the price already entered, spread over the stay, so nothing jumps.
+    if (on && foreign === false && multiplier) attrs.rate = Math.round(l.unitPrice / multiplier);
+    onChange({ attrs });
+  };
   const recompute = (foreignAmount: number | null, fxRate: number | null) => onChange({ foreignAmount, fxRate, unitPrice: foreignAmount != null && fxRate ? Math.round(foreignAmount * fxRate) : 0 });
 
   return (
@@ -133,6 +150,21 @@ export function LineItem({ index, count, line: l, open, bad, canEdit, productTyp
 
           <section aria-label="Price" className="space-y-3 rounded-xl border border-line bg-surface/60 p-3.5">
             <h4 className="text-xs font-bold tracking-wide text-ink-500 uppercase">Price</h4>
+            {rateable && (
+              <label className="flex items-start gap-2 rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink-700">
+                <input type="checkbox" className="mt-0.5 h-4 w-4 accent-plum-600" disabled={!canEdit} checked={rated} onChange={(e) => setRated(e.target.checked)} />
+                <span>
+                  <span className="font-semibold">Price is per {word}</span>
+                  <span className="block text-xs text-ink-500">
+                    {rated
+                      ? multiplier
+                        ? `Rate × ${multiplier} ${word}${multiplier > 1 ? "s" : ""} = the price for one ${unitWord}. Change the dates or the number of ${word}s and it follows.`
+                        : `Enter the ${kind === "HOTEL" ? "nights or the check-in and check-out dates" : "total days or the from and to dates"} above and the price will be worked out.`
+                      : `Tick this to enter a rate per ${word} and have it multiplied by the ${kind === "HOTEL" ? "nights" : "total days"} for you.`}
+                  </span>
+                </span>
+              </label>
+            )}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Field label="Quantity">
                 <input aria-label="Quantity" type="number" min={1} className={inputClass} disabled={!canEdit} value={l.quantity} onChange={(e) => onChange({ quantity: Number(e.target.value) })} />
@@ -161,13 +193,17 @@ export function LineItem({ index, count, line: l, open, bad, canEdit, productTyp
               </Field>
               {foreign ? (
                 <>
-                  <Field label={`Price per unit (${currency})`}>
+                  <Field label={rated ? `Rate per ${word} (${currency})` : `Price per unit (${currency})`}>
                     <input aria-label={`Amount in ${currency}`} type="number" min={0} step="0.01" className={inputClass} disabled={!canEdit} value={l.foreignAmount ?? ""} onChange={(e) => recompute(e.target.value === "" ? null : Number(e.target.value), l.fxRate ?? 1)} />
                   </Field>
                   <Field label={`Rate (₹ per ${currency})`}>
                     <input aria-label="Exchange rate" type="number" min={0} step="0.0001" className={inputClass} disabled={!canEdit} value={l.fxRate ?? ""} onChange={(e) => recompute(l.foreignAmount ?? null, e.target.value === "" ? null : Number(e.target.value))} />
                   </Field>
                 </>
+              ) : rated ? (
+                <Field label={`Rate per ${word} (₹)`}>
+                  <input aria-label={`Rate per ${word} (₹)`} type="number" min={0} className={inputClass} disabled={!canEdit} value={l.attrs?.rate ?? ""} onChange={(e) => onChange({ attrs: { ...l.attrs, rate: e.target.value === "" ? null : Number(e.target.value) } })} />
+                </Field>
               ) : (
                 <Field label="Price per unit (₹)">
                   <input aria-label="Unit price (₹)" type="number" min={0} className={inputClass} disabled={!canEdit} value={l.unitPrice} onChange={(e) => onChange({ unitPrice: Number(e.target.value) })} />
@@ -175,9 +211,9 @@ export function LineItem({ index, count, line: l, open, bad, canEdit, productTyp
               )}
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {foreign && (
-                <Field label="Price per unit (₹)" hint={`${currency} × rate, rounded`}>
-                  <input aria-label="Unit price (₹)" type="number" min={0} className={inputClass} disabled={!canEdit} value={l.unitPrice} onChange={(e) => onChange({ unitPrice: Number(e.target.value) })} />
+              {(foreign || rated) && (
+                <Field label={rated ? `Price per ${unitWord}${multiplier ? ` for ${multiplier} ${word}${multiplier > 1 ? "s" : ""}` : ""} (₹)` : "Price per unit (₹)"} hint={rated ? "Worked out from the rate" : `${currency} × rate, rounded`}>
+                  <input aria-label="Unit price (₹)" type="number" min={0} className={inputClass} disabled={!canEdit} readOnly={rated} value={l.unitPrice} onChange={(e) => onChange({ unitPrice: Number(e.target.value) })} />
                 </Field>
               )}
               <Field label="Discount (₹)">
@@ -186,7 +222,7 @@ export function LineItem({ index, count, line: l, open, bad, canEdit, productTyp
               <Field label="Tax (%)">
                 <input aria-label="Tax percent" type="number" min={0} max={100} step="0.1" className={inputClass} disabled={!canEdit} value={l.taxPercent ?? 0} onChange={(e) => onChange({ taxPercent: Number(e.target.value) })} />
               </Field>
-              <div className={cn("flex flex-col justify-end rounded-lg border border-plum-200 bg-white px-3.5 py-2", foreign ? "" : "sm:col-start-4")}>
+              <div className={cn("flex flex-col justify-end rounded-lg border border-plum-200 bg-white px-3.5 py-2", foreign || rated ? "" : "sm:col-start-4")}>
                 <span className="text-[11px] font-semibold tracking-wide text-ink-500 uppercase">Line total</span>
                 <span className="text-lg font-semibold text-ink-900">{formatINR(total)}</span>
               </div>

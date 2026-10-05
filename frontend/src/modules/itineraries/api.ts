@@ -1,4 +1,4 @@
-import type { B2BFlightAvailability, B2BRoomAvailability, ItineraryDetail, ItineraryInput, ItineraryListQuery, ItineraryRow, Paginated, QuoteInventorySearchQuery } from "@mashkoor/shared";
+import type { B2BFlightAvailability, B2BRoomAvailability, ItineraryDetail, ItineraryInput, ItineraryListQuery, ItineraryRow, Paginated, QuoteInventorySearchQuery, QuoteTransportOption } from "@mashkoor/shared";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, download, saveFile } from "@/core/api/client";
 
@@ -18,6 +18,8 @@ function useInvalidating<TArgs, TResult>(fn: (args: TArgs) => Promise<TResult>) 
 
 export const useQuoteRooms = (query: QuoteInventorySearchQuery, enabled: boolean) =>
   useQuery({ queryKey: [...key, "rooms", query], queryFn: () => admin.get<B2BRoomAvailability[]>("/inventory/quote-search", { ...query }), enabled });
+export const useQuoteTransport = (query: QuoteInventorySearchQuery, enabled: boolean) =>
+  useQuery({ queryKey: [...key, "transport", query], queryFn: () => admin.get<QuoteTransportOption[]>("/inventory/quote-search", { ...query }), enabled });
 export const useQuoteFlights = (query: QuoteInventorySearchQuery, enabled: boolean) =>
   useQuery({ queryKey: [...key, "flights", query], queryFn: () => admin.get<B2BFlightAvailability[]>("/inventory/quote-search", { ...query }), enabled });
 

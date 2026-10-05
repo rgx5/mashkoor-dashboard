@@ -14,6 +14,7 @@ import type {
   Faq,
   FinanceEntry,
   FlightSeatBlock,
+  ForexTransaction,
   Hotel,
   InboundEvent,
   Invoice,
@@ -27,6 +28,7 @@ import type {
   RoomType,
   Setting,
   Task,
+  TransportOption,
   Testimonial,
   Traveler,
   User,
@@ -86,6 +88,8 @@ export type AppSubjects =
       Enquiry: Enquiry;
       Invoice: Invoice;
       FinanceEntry: FinanceEntry;
+      TransportOption: TransportOption;
+      ForexTransaction: ForexTransaction;
     }>;
 
 export type AppAbility = PureAbility<[Action, AppSubjects], PrismaQuery>;
@@ -143,6 +147,8 @@ export class AbilityFactory {
         can("manage", "RoomType");
         can("manage", "RatePeriod");
         can("manage", "FlightSeatBlock");
+        can("manage", "TransportOption");
+        can("manage", "ForexTransaction");
         can("manage", "PricingRule");
         can("manage", "Currency");
         can("manage", "Enquiry");
@@ -178,6 +184,7 @@ export class AbilityFactory {
         can("read", "RoomType");
         can("read", "RatePeriod");
         can("read", "FlightSeatBlock");
+        can("read", "TransportOption");
         can("read", "PricingRule");
         can("read", "Currency");
         // Raw enquiries: their own assigned ones, and they can note down a phone call or walk-in themselves.
@@ -209,6 +216,8 @@ export class AbilityFactory {
         can(["read", "create", "update"], "Invoice");
         // The accounts section: every rupee in and out, supplier payments and expenses. Entries are cancelled, never edited.
         can(["read", "create", "update"], "FinanceEntry");
+        // The forex desk: sells currency to customers, buys stock from dealers, sets the rates.
+        can("manage", "ForexTransaction");
         can("read", "Itinerary");
         can("read", "InboundEvent");
         break;

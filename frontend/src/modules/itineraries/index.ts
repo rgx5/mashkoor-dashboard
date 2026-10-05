@@ -2,6 +2,8 @@ import { CalendarRange, Compass } from "lucide-react";
 import type { AppModule } from "@/core/modules/types";
 
 export { useDuplicateItinerary, useItineraries } from "./api";
+export { explainFieldErrors } from "./admin/lineErrors";
+export { PricingCard } from "./admin/PricingCard";
 
 /** M10 · Itineraries — build a day-by-day plan with a price, share it as a link, convert an accepted one into a booking. */
 export const itinerariesModule: AppModule = {

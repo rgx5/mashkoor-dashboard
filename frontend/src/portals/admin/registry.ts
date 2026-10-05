@@ -9,6 +9,7 @@ import { enquiriesModule } from "@/modules/enquiries";
 import { inventoryModule } from "@/modules/inventory";
 import { itinerariesModule } from "@/modules/itineraries";
 import { financeModule } from "@/modules/finance";
+import { forexModule } from "@/modules/forex";
 import { invoicesModule } from "@/modules/invoices";
 import { leadsModule } from "@/modules/leads";
 import { partnersModule } from "@/modules/partners";
@@ -20,7 +21,7 @@ import { tasksModule } from "@/modules/tasks";
 import { usersModule } from "@/modules/users";
 
 /** Modules available in the Admin portal, in navigation order. Add new modules here as they are built. */
-const modules: AppModule[] = [enquiriesModule, leadsModule, customersModule, contactsModule, itinerariesModule, tasksModule, inventoryModule, pricingModule, currenciesModule, bookingsModule, paymentsModule, invoicesModule, financeModule, partnersModule, catalogModule, reportsModule, usersModule, administrationModule, companyModule];
+const modules: AppModule[] = [enquiriesModule, leadsModule, customersModule, contactsModule, itinerariesModule, tasksModule, inventoryModule, pricingModule, currenciesModule, bookingsModule, paymentsModule, invoicesModule, financeModule, forexModule, partnersModule, catalogModule, reportsModule, usersModule, administrationModule, companyModule];
 
 const slices = portalSlices(modules, "admin");
 export const adminNav = slices.flatMap((s) => s.nav ?? []);

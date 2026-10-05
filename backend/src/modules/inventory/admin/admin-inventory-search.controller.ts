@@ -9,6 +9,7 @@ import { AbilityFactory } from "../../../core/rbac/ability.factory";
 import { CheckAbility } from "../../../core/rbac/policies.guard";
 import { PricingService } from "../../pricing/domain/pricing.service";
 import { InventoryAvailabilityService } from "../domain/inventory-availability.service";
+import { TransportService } from "../domain/transport.service";
 import { redactFlightCost } from "../domain/flight-inventory.service";
 import { redactRateCost } from "../domain/hotels.service";
 
@@ -20,6 +21,7 @@ export class AdminInventorySearchController {
     private readonly availability: InventoryAvailabilityService,
     private readonly abilities: AbilityFactory,
     private readonly pricing: PricingService,
+    private readonly transport: TransportService,
   ) {}
 
   @Get("search")
@@ -42,12 +44,21 @@ export class AdminInventorySearchController {
   @CheckAbility("read", "RatePeriod")
   async quoteSearch(@CurrentUser() actor: RequestUser, @Query(new ZodPipe(quoteInventorySearchQuerySchema)) query: QuoteInventorySearchQuery & { productType: NonNullable<QuoteInventorySearchQuery["productType"]> }) {
     const ability = this.abilities.forUser(actor);
+    if (query.kind === "TRANSPORT") {
+      if (!ability.can("read", "TransportOption")) throw AppError.forbidden();
+      const options = await this.transport.search({ fromPlace: query.fromPlace, toPlace: query.toPlace });
+      return Promise.all(
+        options.map(async (o) => ({ id: o.id, vehicleType: o.vehicleType, fromPlace: o.fromPlace, toPlace: o.toPlace, seats: o.seats, price: await this.pricing.suggestSellPrice("B2C", query.productType, o.costPrice) })),
+      );
+    }
+    // Past the transport branch it is a hotel or flight search, which is what the availability queries take.
+    const stay = query as InventorySearchQuery & { productType: typeof query.productType };
     if (query.kind === "FLIGHT") {
       if (!ability.can("read", "FlightSeatBlock")) throw AppError.forbidden();
-      const flights = await this.availability.searchFlights(query);
+      const flights = await this.availability.searchFlights(stay);
       return Promise.all(flights.map(async ({ costPrice, notes: _notes, totalSeats: _total, bookedSeats: _booked, ...flight }) => ({ ...flight, price: await this.pricing.suggestSellPrice("B2C", query.productType, costPrice ?? 0) })));
     }
-    const rooms = await this.availability.searchRooms(query);
+    const rooms = await this.availability.searchRooms(stay);
     return Promise.all(
       rooms.map(async (room) => ({
         hotel: room.hotel,
