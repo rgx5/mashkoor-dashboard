@@ -1055,6 +1055,9 @@ enum ItineraryStatus {
 model Itinerary {
   id                    String          @id @default(uuid(7)) @db.Uuid
   refNo                 String          @unique
+  /// "Deleting" a quotation moves it here: hidden from every list and its share link stops working, but nothing is lost.
+  archivedAt            DateTime?
+  archivedById          String?         @db.Uuid
   title                 String
   productType           ProductType     @default(HOLIDAY)
   tripType              TripType        @default(FIT)

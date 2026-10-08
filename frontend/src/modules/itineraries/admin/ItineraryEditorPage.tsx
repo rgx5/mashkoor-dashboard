@@ -37,6 +37,7 @@ import {
   useConvertItinerary,
   useCreateItinerary,
   useDeleteItinerary,
+  useRestoreItinerary,
   useDuplicateItinerary,
   useItinerary,
   useSendItinerary,
@@ -148,6 +149,7 @@ export function ItineraryEditorPage() {
   const { data: currencies } = useCurrencies();
   const create = useCreateItinerary();
   const update = useUpdateItinerary();
+  const restore = useRestoreItinerary();
 
   const [form, setForm] = useState<FormState>(() => ({
     ...emptyForm,
@@ -175,7 +177,8 @@ export function ItineraryEditorPage() {
   if (id && isLoading) return <FullPageSpinner />;
 
   const locked = existing ? existing.status === "ACCEPTED" || existing.status === "CONVERTED" : false;
-  const canEdit = !locked && ability.can(id ? "update" : "create", "Itinerary");
+  const archived = Boolean(existing?.archivedAt);
+  const canEdit = !locked && !archived && ability.can(id ? "update" : "create", "Itinerary");
   const total = itineraryTotal(form.lines, form.adjustment);
   const patch = (changes: Partial<FormState>) => setForm((f) => ({ ...f, ...changes }));
 
@@ -220,6 +223,16 @@ export function ItineraryEditorPage() {
       </div>
 
       {existing && !existing.isTemplate && <ActionsBar itinerary={existing} onDeleted={() => navigate("/admin/itineraries", { replace: true })} />}
+      {archived && existing && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-gold-50 px-4 py-3 text-sm text-gold-700">
+          <span>This quotation is in the archive. Its share link is switched off and it can't be edited until you restore it.</span>
+          {ability.can("delete", "Itinerary") && (
+            <Button size="sm" variant="secondary" loading={restore.isPending} onClick={() => void restore.mutateAsync(existing.id).then(() => toast.success("Restored from the archive"), (e) => toast.error(errorMessage(e)))}>
+              <Undo2 className="h-4 w-4" aria-hidden /> Restore
+            </Button>
+          )}
+        </div>
+      )}
       {locked && <p className="mb-4 rounded-lg bg-gold-50 px-4 py-3 text-sm text-gold-700">This plan has been accepted, so it's locked. Duplicate it to make a new version.</p>}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
@@ -704,15 +717,16 @@ function ActionsBar({ itinerary, onDeleted }: { itinerary: ItineraryDetail; onDe
             <Copy className="h-4 w-4" aria-hidden /> Duplicate
           </Button>
         )}
-        {ability.can("delete", "Itinerary") && itinerary.status !== "CONVERTED" && (
+        {ability.can("delete", "Itinerary") && !itinerary.archivedAt && (
           <Button
             variant="ghost"
             size="sm"
+            title="Delete — moves it to the archive"
             onClick={() => {
-              if (window.confirm("Delete this quotation? This can't be undone.")) void run(async () => { await remove.mutateAsync(itinerary.id); onDeleted(); }, "Quotation deleted");
+              if (window.confirm(`Delete ${itinerary.refNo}? It moves to the archive and its share link stops working. You can restore it any time.`)) void run(async () => { await remove.mutateAsync(itinerary.id); onDeleted(); }, "Moved to the archive");
             }}
           >
-            <Trash2 className="h-4 w-4 text-red-600" aria-hidden />
+            <Trash2 className="h-4 w-4 text-red-600" aria-hidden /> Delete
           </Button>
         )}
       </span>

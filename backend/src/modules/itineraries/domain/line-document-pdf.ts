@@ -6,12 +6,16 @@ import QRCode from "qrcode";
 
 export const M = 36;
 
-/** Looks for an OFL font that has the rupee sign (assets/fonts/NotoSans-*.ttf); without one the PDF prints "Rs." in Helvetica. */
+/**
+ * Looks for the Noto Sans files in assets/fonts (OFL-licensed, with the rupee sign). Text is set in Medium, which prints much more
+ * solidly than Regular, and emphasis in Bold. Without the files the PDF falls back to Helvetica and prints "Rs.".
+ */
 export function findFonts() {
   for (const dir of [join(process.cwd(), "assets", "fonts"), join(__dirname, "..", "..", "..", "..", "assets", "fonts")]) {
     const regular = join(dir, "NotoSans-Regular.ttf");
+    const medium = join(dir, "NotoSans-Medium.ttf");
     const bold = join(dir, "NotoSans-Bold.ttf");
-    if (existsSync(regular) && existsSync(bold)) return { regular, bold };
+    if (existsSync(regular) && existsSync(bold)) return { regular: existsSync(medium) ? medium : regular, bold };
   }
   return null;
 }
@@ -54,6 +58,8 @@ export interface LineDocument {
   payments?: { date: string; details: string; amount: number; refund?: boolean }[];
   flights?: FlightSegment[];
   hotels?: HotelStay[];
+  /** Heading of the hotel distance column: "From Haram" for Makkah and Madinah stays, otherwise just "Distance". */
+  hotelDistanceLabel?: string;
   days?: ItineraryDay[];
   inclusions?: string[];
   exclusions?: string[];
@@ -74,11 +80,13 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
   doc.on("data", (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
 
-  // Two type sizes and two colours, everywhere: SIZE for everything, BIG for the number, the customer and the total.
-  const SIZE = 10;
+  // Two type sizes and two colours, everywhere: SIZE for everything, BIG for the number, the customer and the total. Both colours are
+  // dark enough to survive a laser or inkjet printer, and the body text is a medium-weight font so nothing prints thin.
+  const SIZE = 9.5;
   const BIG = 14;
-  const BLACK = "#1a1a1a";
-  const GREY = "#666666";
+  const BLACK = "#000000";
+  const GREY = "#333333";
+  const RULE = 0.9;
   const PAD = 6;
 
   const W = doc.page.width - M * 2;
@@ -98,9 +106,9 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
     font(bold).fontSize(size);
     return doc.heightOfString(s || " ", { width: w });
   };
-  const rect = (x: number, y: number, w: number, h: number) => doc.rect(x, y, w, h).lineWidth(0.6).strokeColor(GREY).stroke();
+  const rect = (x: number, y: number, w: number, h: number) => doc.rect(x, y, w, h).lineWidth(RULE).strokeColor(BLACK).stroke();
   const vlines = (xs: number[], y: number, h: number) => {
-    for (const x of xs) doc.moveTo(x, y).lineTo(x, y + h).lineWidth(0.6).strokeColor(GREY).stroke();
+    for (const x of xs) doc.moveTo(x, y).lineTo(x, y + h).lineWidth(RULE).strokeColor(BLACK).stroke();
   };
   const section = (heading: string) => {
     // Keep a heading together with its first rows instead of stranding it at the foot of a page.
@@ -225,10 +233,10 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
   section(d.kind === "INVOICE" ? "Items" : "Pricing");
   const wNo = 26;
   const wQty = breakup ? 32 : 60;
-  const wPrice = breakup ? 68 : 0;
-  const wLess = breakup ? 56 : 0;
-  const wTax = breakup ? 54 : 0;
-  const wTotal = breakup ? 78 : 0;
+  const wPrice = breakup ? 70 : 0;
+  const wLess = breakup ? 60 : 0;
+  const wTax = breakup ? 62 : 0;
+  const wTotal = breakup ? 80 : 0;
   const wName = W - wNo - wQty - wPrice - wLess - wTax - wTotal;
   const pc = [
     { label: "No", w: wNo, align: "left" as const },
@@ -327,7 +335,10 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
   // ── Flights and hotels, when they were filled in ──────────────────────
   if (d.flights?.length) {
     section("Flights");
-    const fw = [58, 58, 56, 56, 56, 54, 46, 44];
+    // The Zamzam allowance only matters on Umrah and Hajj tickets; when no flight has one, the column is dropped.
+    const showZamzam = d.flights.some((f) => f.zamzam);
+    // Wider columns when there is no Zamzam column to make room for, so city names and dates wrap less.
+    const fw = showZamzam ? [58, 58, 56, 56, 56, 54, 46, 44] : [50, 68, 74, 68, 74, 66, 44, 0];
     table(
       [
         { label: "Trip", width: fw[0]! },
@@ -337,16 +348,16 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
         { label: "Arrives", width: fw[4]! },
         { label: "Airline", width: fw[5]! },
         { label: "Hand bag", width: fw[6]! },
-        { label: "Bag", width: fw[7]! },
-        { label: "Zamzam", width: W - fw.reduce((a, b) => a + b, 0) },
+        { label: "Bag", width: showZamzam ? fw[7]! : W - fw.slice(0, 7).reduce((a, b) => a + b, 0) },
+        ...(showZamzam ? [{ label: "Zamzam", width: W - fw.reduce((a, b) => a + b, 0) }] : []),
       ],
-      d.flights.map((f) => [f.tripType, f.departureCity, f.departureAt, f.arrivalCity, f.arrivalAt, f.airline, f.handCarry, f.checkInBaggage, f.zamzam]),
+      d.flights.map((f) => [f.tripType, f.departureCity, f.departureAt, f.arrivalCity, f.arrivalAt, f.airline, f.handCarry, f.checkInBaggage, ...(showZamzam ? [f.zamzam] : [])]),
     );
   }
   if (d.hotels?.length) {
     section("Hotels");
     table(
-      [{ label: "City", width: W * 0.16 }, { label: "Hotel", width: W * 0.27 }, { label: "From Haram", width: W * 0.17 }, { label: "Check-in", width: W * 0.2 }, { label: "Check-out", width: W * 0.2 }],
+      [{ label: "City", width: W * 0.16 }, { label: "Hotel", width: W * 0.27 }, { label: d.hotelDistanceLabel ?? "Distance", width: W * 0.17 }, { label: "Check-in", width: W * 0.2 }, { label: "Check-out", width: W * 0.2 }],
       d.hotels.map((h) => [h.city, h.hotel, h.distanceFromHaram, h.checkIn, h.checkOut]),
     );
   }
@@ -422,7 +433,7 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
     doc.switchToPage(range.start + i);
     // The footer sits inside the bottom margin; without this pdfkit would start a new page for it.
     doc.page.margins.bottom = 0;
-    doc.moveTo(M, doc.page.height - 40).lineTo(M + W, doc.page.height - 40).lineWidth(0.6).strokeColor(GREY).stroke();
+    doc.moveTo(M, doc.page.height - 40).lineTo(M + W, doc.page.height - 40).lineWidth(RULE).strokeColor(BLACK).stroke();
     write(d.footer, M, doc.page.height - 30, { w: W - 90, color: GREY, oneLine: true });
     write(`Page ${i + 1} of ${range.count}`, M + W - 90, doc.page.height - 30, { w: 90, align: "right", color: GREY, oneLine: true });
   }

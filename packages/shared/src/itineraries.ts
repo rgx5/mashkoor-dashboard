@@ -307,6 +307,11 @@ export const itineraryListQuerySchema = listQuerySchema.extend({
     .transform((v) => (v === undefined ? undefined : v === "true")),
   customerId: uuid.optional(),
   leadId: uuid.optional(),
+  /** `true` lists the archive (deleted quotations); the default lists everything else. */
+  archived: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
 });
 export type ItineraryListQuery = z.output<typeof itineraryListQuerySchema>;
 
@@ -321,6 +326,8 @@ export const itineraryTotal = (lines: { quantity: number; unitPrice: number; dis
 export interface ItineraryRow {
   id: string;
   refNo: string;
+  /** Set when the quotation has been deleted into the archive. */
+  archivedAt: string | null;
   title: string;
   productType: ProductType;
   tripType: TripType;

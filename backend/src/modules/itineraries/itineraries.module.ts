@@ -77,6 +77,14 @@ export class AdminItinerariesController {
     return this.itineraries.remove(actor, id);
   }
 
+  /** Takes a deleted quotation back out of the archive. */
+  @Post(":id/restore")
+  @HttpCode(200)
+  @CheckAbility("delete", "Itinerary")
+  restore(@CurrentUser() actor: RequestUser, @Param("id", ParseUUIDPipe) id: string) {
+    return this.itineraries.restore(actor, id);
+  }
+
   @Post(":id/duplicate")
   @CheckAbility("create", "Itinerary")
   duplicate(@CurrentUser() actor: RequestUser, @Param("id", ParseUUIDPipe) id: string, @Body(new ZodPipe(duplicateSchema)) body: z.output<typeof duplicateSchema>) {

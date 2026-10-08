@@ -5,7 +5,7 @@ import { api, download, saveFile } from "@/core/api/client";
 const admin = api("admin");
 const key = ["admin", "itineraries"] as const;
 
-export type ItineraryFilters = Partial<Omit<ItineraryListQuery, "template">> & { template?: "true" | "false" };
+export type ItineraryFilters = Partial<Omit<ItineraryListQuery, "template" | "archived">> & { template?: "true" | "false"; archived?: "true" | "false" };
 
 export const useItineraries = (filters: ItineraryFilters) =>
   useQuery({ queryKey: [...key, "list", filters], queryFn: () => admin.get<Paginated<ItineraryRow>>("/itineraries", { pageSize: 25, ...filters }), placeholderData: keepPreviousData });
@@ -25,6 +25,7 @@ export const useQuoteFlights = (query: QuoteInventorySearchQuery, enabled: boole
 
 export const useCreateItinerary = () => useInvalidating((input: ItineraryInput) => admin.post<ItineraryDetail>("/itineraries", input));
 export const useUpdateItinerary = () => useInvalidating(({ id, input }: { id: string; input: Partial<ItineraryInput> }) => admin.patch<ItineraryDetail>(`/itineraries/${id}`, input));
+export const useRestoreItinerary = () => useInvalidating((id: string) => admin.post<ItineraryDetail>(`/itineraries/${id}/restore`));
 export const useDeleteItinerary = () => useInvalidating((id: string) => admin.delete<void>(`/itineraries/${id}`));
 export const useDuplicateItinerary = () => useInvalidating(({ id, customerId, leadId }: { id: string; customerId?: string | null; leadId?: string | null }) => admin.post<ItineraryDetail>(`/itineraries/${id}/duplicate`, { customerId, leadId }));
 export const useShareItinerary = () => useInvalidating(({ id, validForDays }: { id: string; validForDays: number }) => admin.post<ItineraryDetail>(`/itineraries/${id}/share`, { validForDays }));

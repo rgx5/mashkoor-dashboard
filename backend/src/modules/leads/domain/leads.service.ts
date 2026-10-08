@@ -325,7 +325,7 @@ export class LeadsService {
       }
     }
     if (change.stage === "WAITING_PAYMENT") {
-      const quotations = await this.prisma.itinerary.count({ where: { leadId: id, isTemplate: false, status: { in: ["SHARED", "ACCEPTED", "CONVERTED"] } } });
+      const quotations = await this.prisma.itinerary.count({ where: { leadId: id, isTemplate: false, archivedAt: null, status: { in: ["SHARED", "ACCEPTED", "CONVERTED"] } } });
       if (quotations === 0) throw new AppError(HttpStatus.UNPROCESSABLE_ENTITY, "LEAD_NO_QUOTATION", "Send a quotation to the customer before moving this lead to payment");
       // From here the person is a customer: create the record now so super admin and accounts can see their details.
       if (!lead.customerId) {
@@ -421,7 +421,7 @@ export class LeadsService {
     // The accountant works on a booking, so make sure the accepted quotation has become one.
     const existing = await this.prisma.booking.findFirst({ where: { leadId: id, status: { not: "CANCELLED" } }, select: { id: true } });
     if (!existing) {
-      const quotation = await this.prisma.itinerary.findFirst({ where: { leadId: id, isTemplate: false, status: { in: ["ACCEPTED", "SHARED"] } }, orderBy: { createdAt: "desc" }, select: { id: true } });
+      const quotation = await this.prisma.itinerary.findFirst({ where: { leadId: id, isTemplate: false, archivedAt: null, status: { in: ["ACCEPTED", "SHARED"] } }, orderBy: { createdAt: "desc" }, select: { id: true } });
       if (!quotation) throw AppError.conflict("There is no quotation to bill. Send one to the customer first.");
       await this.itineraries.convertToBooking(actor, quotation.id);
     }
@@ -519,7 +519,7 @@ export class LeadsService {
   private async detail(id: string) {
     const [lead, quotation, booking, invoice] = await Promise.all([
       this.prisma.lead.findUniqueOrThrow({ where: { id }, include }),
-      this.prisma.itinerary.findFirst({ where: { leadId: id, isTemplate: false }, orderBy: { createdAt: "desc" }, select: { id: true, refNo: true, status: true } }),
+      this.prisma.itinerary.findFirst({ where: { leadId: id, isTemplate: false, archivedAt: null }, orderBy: { createdAt: "desc" }, select: { id: true, refNo: true, status: true } }),
       this.prisma.booking.findFirst({ where: { leadId: id, status: { not: "CANCELLED" } }, orderBy: { createdAt: "desc" }, select: { id: true, refNo: true } }),
       this.prisma.invoice.findFirst({ where: { leadId: id, status: "ISSUED" }, orderBy: { createdAt: "desc" }, select: { id: true, refNo: true } }),
     ]);

@@ -1,19 +1,19 @@
 import { ITINERARY_STATUS_LABELS, ITINERARY_STATUSES, PRODUCT_TYPE_LABELS, type ItineraryRow, type ItineraryStatus } from "@mashkoor/shared";
-import { CalendarRange, Plus } from "lucide-react";
+import { Archive, CalendarRange, Plus, Trash2, Undo2 } from "lucide-react";
 import { Link, useSearchParams } from "react-router";
-import { errorMessage } from "@/core/api/errors";
+import { errorMessage, withToast } from "@/core/api/errors";
 import { formatDate, formatINR, timeAgo } from "@/core/format";
 import { useAbility } from "@/core/rbac/ability";
-import { buttonClass } from "@/core/ui/Button";
+import { Button, buttonClass } from "@/core/ui/Button";
 import { DataTable, type Column } from "@/core/ui/DataTable";
 import { inputClass } from "@/core/ui/form";
 import { Badge, PageHeader } from "@/core/ui/layout";
 import { SegmentedControl } from "@/core/ui/misc";
-import { useItineraries } from "../api";
+import { useDeleteItinerary, useItineraries, useRestoreItinerary } from "../api";
 
 export const itineraryTone = (s: ItineraryStatus) => (s === "ACCEPTED" || s === "CONVERTED" ? "green" : s === "SHARED" ? "plum" : "neutral");
 
-type View = "customers" | "templates";
+type View = "customers" | "templates" | "archive";
 
 export function ItinerariesPage() {
   const [params, setParams] = useSearchParams();
@@ -22,7 +22,10 @@ export function ItinerariesPage() {
   const view = (params.get("view") ?? "customers") as View;
   const status = (params.get("status") ?? "") as ItineraryStatus | "";
   const q = params.get("q") ?? "";
-  const { data, isLoading, error } = useItineraries({ page, q, template: view === "templates" ? "true" : "false", status: status || undefined });
+  const remove = useDeleteItinerary();
+  const restore = useRestoreItinerary();
+  const { data, isLoading, error } = useItineraries({ page, q, template: view === "templates" ? "true" : view === "archive" ? undefined : "false", archived: view === "archive" ? "true" : "false", status: status || undefined });
+  const canDelete = ability.can("delete", "Itinerary");
 
   const set = (key: string, value: string) =>
     setParams((prev) => {
@@ -59,7 +62,29 @@ export function ItinerariesPage() {
           { key: "views", header: "Views", cell: (i: ItineraryRow) => (i.status === "DRAFT" ? "—" : i.viewCount) },
         ]),
     { key: "total", header: "Price", className: "text-right", cell: (i) => <span className="font-semibold">{i.totalPrice ? formatINR(i.totalPrice) : "—"}</span> },
-    { key: "updated", header: "Updated", cell: (i) => <span className="text-ink-500">{timeAgo(i.updatedAt)}</span> },
+    { key: "updated", header: view === "archive" ? "Archived" : "Updated", cell: (i) => <span className="text-ink-500">{timeAgo(view === "archive" ? (i.archivedAt ?? i.updatedAt) : i.updatedAt)}</span> },
+    {
+      key: "actions",
+      header: "",
+      className: "text-right",
+      cell: (i) =>
+        canDelete &&
+        (view === "archive" ? (
+          <Button size="sm" variant="secondary" loading={restore.isPending && restore.variables === i.id} onClick={() => void withToast(restore.mutateAsync(i.id), `${i.refNo} restored`)}>
+            <Undo2 className="h-4 w-4" aria-hidden /> Restore
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Delete ${i.refNo}`}
+            title="Delete — moves it to the archive"
+            onClick={() => window.confirm(`Delete ${i.refNo}? It moves to the archive and its share link stops working. You can restore it any time.`) && void withToast(remove.mutateAsync(i.id), `${i.refNo} moved to the archive`)}
+          >
+            <Trash2 className="h-4 w-4 text-red-600" aria-hidden />
+          </Button>
+        )),
+    },
   ];
 
   return (
@@ -68,7 +93,7 @@ export function ItinerariesPage() {
         title="Quotations"
         description="Build a day-by-day plan with a price, share it as a link, and turn an accepted one into a booking."
         actions={
-          ability.can("create", "Itinerary") && (
+          ability.can("create", "Itinerary") && view !== "archive" && (
             <Link to={`/admin/itineraries/new${view === "templates" ? "?template=1" : ""}`} className={buttonClass("primary")}>
               <Plus className="h-4 w-4" aria-hidden /> {view === "templates" ? "New template" : "New quotation"}
             </Link>
@@ -79,6 +104,7 @@ export function ItinerariesPage() {
           options={[
             { value: "customers", label: "Customer plans" },
             { value: "templates", label: "Templates" },
+            { value: "archive", label: "Archive" },
           ]}
           value={view}
           onChange={(v) => set("view", v === "customers" ? "" : v)}
@@ -101,7 +127,7 @@ export function ItinerariesPage() {
         rowKey={(i) => i.id}
         loading={isLoading}
         error={error ? errorMessage(error) : null}
-        empty={{ icon: CalendarRange, title: view === "templates" ? "No templates yet" : "No quotations yet", description: view === "templates" ? "Save a plan you reuse often (e.g. 5N Umrah) as a template." : "Create one from here, or from a lead." }}
+        empty={{ icon: view === "archive" ? Archive : CalendarRange, title: view === "templates" ? "No templates yet" : view === "archive" ? "The archive is empty" : "No quotations yet", description: view === "templates" ? "Save a plan you reuse often (e.g. 5N Umrah) as a template." : view === "archive" ? "Quotations you delete are kept here, and can be restored." : "Create one from here, or from a lead." }}
         page={page}
         pageSize={data?.meta.pageSize ?? 25}
         total={data?.meta.total ?? 0}

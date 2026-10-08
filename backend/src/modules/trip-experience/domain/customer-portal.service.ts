@@ -82,7 +82,7 @@ export class CustomerPortalService {
         include: { travelers: { select: { id: true, firstName: true, lastName: true, dob: true, passportNoEnc: true, passportExpiry: true } }, documents: { where: { visibleToCustomer: true }, select: { createdAt: true } } },
         orderBy: [{ travelFrom: "asc" }, { createdAt: "desc" }],
       }),
-      this.prisma.itinerary.findMany({ where: { customerId, isTemplate: false, status: "SHARED" }, orderBy: { sharedAt: "desc" } }),
+      this.prisma.itinerary.findMany({ where: { customerId, isTemplate: false, archivedAt: null, status: "SHARED" }, orderBy: { sharedAt: "desc" } }),
       this.prisma.lead.count({ where: { customerId, stage: { in: [...OPEN_LEAD_STAGES] } } }),
     ]);
 

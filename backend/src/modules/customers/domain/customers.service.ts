@@ -219,7 +219,7 @@ export class CustomersService {
     const [openLeads, activeBookings, activeQuotes] = await Promise.all([
       this.prisma.lead.count({ where: { customerId: id, stage: { in: [...OPEN_LEAD_STAGES] } } }),
       this.prisma.booking.count({ where: { customerId: id, status: { notIn: ["CANCELLED", "FAILED", "COMPLETED"] } } }),
-      this.prisma.itinerary.count({ where: { customerId: id, isTemplate: false, status: { in: ["SHARED", "ACCEPTED"] } } }),
+      this.prisma.itinerary.count({ where: { customerId: id, isTemplate: false, archivedAt: null, status: { in: ["SHARED", "ACCEPTED"] } } }),
     ]);
     const blockers = [openLeads && `${openLeads} open lead${openLeads === 1 ? "" : "s"}`, activeBookings && `${activeBookings} active booking${activeBookings === 1 ? "" : "s"}`, activeQuotes && `${activeQuotes} live quotation${activeQuotes === 1 ? "" : "s"}`].filter(Boolean);
     if (blockers.length) {

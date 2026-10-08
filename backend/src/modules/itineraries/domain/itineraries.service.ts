@@ -69,6 +69,7 @@ export class ItinerariesService {
     return {
       id: i.id,
       refNo: i.refNo,
+      archivedAt: toIso(i.archivedAt),
       title: i.title,
       productType: i.productType,
       tripType: i.tripType,
@@ -125,7 +126,9 @@ export class ItinerariesService {
     const where: Prisma.ItineraryWhereInput = {
       AND: [
         accessibleBy(ability).Itinerary,
-        { isTemplate: query.template ?? false },
+        // The archive holds templates and customer quotations together.
+        { isTemplate: query.template ?? (query.archived ? undefined : false) },
+        query.archived ? { archivedAt: { not: null } } : { archivedAt: null },
         query.status ? { status: query.status } : {},
         query.customerId ? { customerId: query.customerId } : {},
         query.leadId ? { leadId: query.leadId } : {},
@@ -147,7 +150,7 @@ export class ItinerariesService {
   /** Itineraries shared with the signed-in customer, for the customer portal. */
   async listForCustomer(actor: RequestUser): Promise<ItineraryRow[]> {
     if (!actor.customerId) throw AppError.forbidden();
-    const rows = await this.prisma.itinerary.findMany({ where: { customerId: actor.customerId, isTemplate: false, status: { in: ["SHARED", "ACCEPTED", "CONVERTED"] } }, include, orderBy: { sharedAt: "desc" } });
+    const rows = await this.prisma.itinerary.findMany({ where: { customerId: actor.customerId, isTemplate: false, archivedAt: null, status: { in: ["SHARED", "ACCEPTED", "CONVERTED"] } }, include, orderBy: { sharedAt: "desc" } });
     return rows.map((r) => this.toRow(r));
   }
 
@@ -241,11 +244,24 @@ export class ItinerariesService {
     if (!user) throw AppError.notFound("Relationship manager");
   }
 
+  /**
+   * Deleting a quotation archives it: it leaves every list and its share link stops working, but the quotation, its numbering and
+   * anything built from it (an invoice, a booking) stay intact, and it can be restored.
+   */
   async remove(actor: RequestUser, id: string) {
     const itinerary = await this.findAccessible(actor, id, "delete");
-    if (itinerary.status === "CONVERTED") throw AppError.conflict("This quotation became a booking and can't be deleted");
-    await this.prisma.itinerary.delete({ where: { id } });
-    await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "itinerary.deleted", entityType: "Itinerary", entityId: id, before: { refNo: itinerary.refNo, title: itinerary.title } });
+    if (itinerary.archivedAt) return;
+    await this.prisma.itinerary.update({ where: { id }, data: { archivedAt: new Date(), archivedById: actor.id } });
+    await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "itinerary.archived", entityType: "Itinerary", entityId: id, before: { refNo: itinerary.refNo, title: itinerary.title } });
+  }
+
+  /** Takes a quotation back out of the archive. */
+  async restore(actor: RequestUser, id: string): Promise<ItineraryDetail> {
+    const itinerary = await this.findAccessible(actor, id, "delete");
+    if (!itinerary.archivedAt) return this.detail(id);
+    await this.prisma.itinerary.update({ where: { id }, data: { archivedAt: null, archivedById: null } });
+    await this.audit.record({ actorId: actor.id, portal: actor.portal, action: "itinerary.restored", entityType: "Itinerary", entityId: id, after: { refNo: itinerary.refNo } });
+    return this.detail(id);
   }
 
   /** Copies an itinerary — to start from a template, or to revise one that's already been accepted. */
@@ -447,7 +463,8 @@ export class ItinerariesService {
 
   private async findByToken(token: string) {
     const itinerary = await this.prisma.itinerary.findUnique({ where: { shareToken: token } });
-    if (!itinerary || itinerary.status === "DRAFT") throw AppError.notFound("Itinerary");
+    // An archived quotation is gone as far as the customer is concerned: its link stops working.
+    if (!itinerary || itinerary.status === "DRAFT" || itinerary.archivedAt) throw AppError.notFound("Itinerary");
     return itinerary;
   }
 
@@ -455,6 +472,7 @@ export class ItinerariesService {
     const itinerary = await this.prisma.itinerary.findUnique({ where: { id } });
     if (!itinerary) throw AppError.notFound("Itinerary");
     if (!this.abilities.forUser(actor).can(action, subject("Itinerary", itinerary))) throw AppError.forbidden();
+    if (action === "update" && itinerary.archivedAt) throw AppError.conflict("This quotation is in the archive. Restore it to make changes.");
     return itinerary;
   }
 

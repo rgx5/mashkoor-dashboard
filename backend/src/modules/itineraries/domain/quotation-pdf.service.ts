@@ -57,6 +57,7 @@ export class QuotationPdfService {
       schedule,
       flights: it.flights,
       hotels: it.hotels,
+      hotelDistanceLabel: /makkah|madinah|mecca|medina|umrah|hajj/i.test(`${it.destination ?? ""} ${it.title}`) ? "From Haram" : "Distance",
       days: it.days,
       inclusions: it.inclusions,
       exclusions: it.exclusions,
