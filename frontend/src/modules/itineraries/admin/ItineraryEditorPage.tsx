@@ -32,7 +32,6 @@ import { BackLink } from "@/core/ui/misc";
 import { FullPageSpinner } from "@/core/ui/Spinner";
 import { useCurrencies } from "@/modules/currencies";
 import { CustomerPicker } from "@/modules/customers/CustomerPicker";
-import { LeadPicker } from "@/modules/leads/LeadPicker";
 import { StaffSelect } from "@/modules/users";
 import {
   useConvertItinerary,
@@ -271,30 +270,24 @@ export function ItineraryEditorPage() {
             </div>
             {!form.isTemplate && (
               <div className={canEdit ? "" : "pointer-events-none opacity-70"}>
-                <LeadPicker
-                  value={form.leadId}
-                  hint="Pick the lead this quotation is for. Customers are only created once the lead reaches Awaiting payment."
-                  onChange={(lead) =>
-                    patch(
-                      lead
-                        ? {
-                            leadId: lead.id,
-                            customerId: form.customerId || lead.customer?.id || "",
-                            destination: form.destination || lead.destination || "",
-                            travelFrom: form.travelFrom || lead.travelFrom?.slice(0, 10) || "",
-                            travelTo: form.travelTo || lead.travelTo?.slice(0, 10) || "",
-                            adults: form.adults || lead.adults,
-                            children: form.children || lead.children,
-                          }
-                        : { leadId: "" },
-                    )
-                  }
+                <CustomerPicker
+                  value={form.customerId}
+                  onChange={(customerId) => patch({ customerId, ...(customerId ? {} : { leadId: "" }) })}
+                  lead={{
+                    value: form.leadId,
+                    onPick: (lead) =>
+                      patch({
+                        leadId: lead.id,
+                        customerId: lead.customer?.id ?? "",
+                        destination: form.destination || lead.destination || "",
+                        travelFrom: form.travelFrom || lead.travelFrom?.slice(0, 10) || "",
+                        travelTo: form.travelTo || lead.travelTo?.slice(0, 10) || "",
+                        adults: form.adults || lead.adults,
+                        children: form.children || lead.children,
+                      }),
+                  }}
+                  hint="Search customers or leads. A booking needs a customer, which is created when the lead reaches Awaiting payment."
                 />
-              </div>
-            )}
-            {!form.isTemplate && (
-              <div className={canEdit ? "" : "pointer-events-none opacity-70"}>
-                <CustomerPicker value={form.customerId} onChange={(customerId) => patch({ customerId })} hint="Needed to email the plan and to create a booking from it." />
               </div>
             )}
             {!form.isTemplate && (
