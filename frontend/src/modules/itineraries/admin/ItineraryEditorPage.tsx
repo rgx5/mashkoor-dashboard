@@ -32,6 +32,7 @@ import { BackLink } from "@/core/ui/misc";
 import { FullPageSpinner } from "@/core/ui/Spinner";
 import { useCurrencies } from "@/modules/currencies";
 import { CustomerPicker } from "@/modules/customers/CustomerPicker";
+import { LeadPicker } from "@/modules/leads/LeadPicker";
 import { StaffSelect } from "@/modules/users";
 import {
   useConvertItinerary,
@@ -268,6 +269,29 @@ export function ItineraryEditorPage() {
               <TextField label="Adults" type="number" min={0} disabled={!canEdit} value={form.adults} onChange={(e) => patch({ adults: Number(e.target.value) })} />
               <TextField label="Children" type="number" min={0} disabled={!canEdit} value={form.children} onChange={(e) => patch({ children: Number(e.target.value) })} />
             </div>
+            {!form.isTemplate && (
+              <div className={canEdit ? "" : "pointer-events-none opacity-70"}>
+                <LeadPicker
+                  value={form.leadId}
+                  hint="Pick the lead this quotation is for. Customers are only created once the lead reaches Awaiting payment."
+                  onChange={(lead) =>
+                    patch(
+                      lead
+                        ? {
+                            leadId: lead.id,
+                            customerId: form.customerId || lead.customer?.id || "",
+                            destination: form.destination || lead.destination || "",
+                            travelFrom: form.travelFrom || lead.travelFrom?.slice(0, 10) || "",
+                            travelTo: form.travelTo || lead.travelTo?.slice(0, 10) || "",
+                            adults: form.adults || lead.adults,
+                            children: form.children || lead.children,
+                          }
+                        : { leadId: "" },
+                    )
+                  }
+                />
+              </div>
+            )}
             {!form.isTemplate && (
               <div className={canEdit ? "" : "pointer-events-none opacity-70"}>
                 <CustomerPicker value={form.customerId} onChange={(customerId) => patch({ customerId })} hint="Needed to email the plan and to create a booking from it." />

@@ -23,8 +23,9 @@ export const leadKeys = {
   detail: (id: string) => ["admin", "leads", "detail", id] as const,
 };
 
-export const useLeads = (filters: LeadFilters) =>
+export const useLeads = (filters: LeadFilters, enabled = true) =>
   useQuery({
+    enabled,
     queryKey: [...leadKeys.all, "list", filters],
     queryFn: () => admin.get<Paginated<LeadRow>>("/leads", { ...filters, pageSize: 25 }),
     placeholderData: keepPreviousData,
