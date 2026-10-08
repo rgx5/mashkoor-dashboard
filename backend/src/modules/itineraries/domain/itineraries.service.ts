@@ -335,7 +335,7 @@ export class ItinerariesService {
   async sendToCustomer(actor: RequestUser, id: string): Promise<{ sent: boolean; reason?: string }> {
     const itinerary = await this.findAccessible(actor, id, "update");
     if (itinerary.status !== "SHARED" || !itinerary.shareToken) throw AppError.conflict("Share the quotation first");
-    const customer = itinerary.customerId ? await this.prisma.customer.findUnique({ where: { id: itinerary.customerId }, select: { fullName: true, email: true } }) : null;
+    const customer = await this.recipient(itinerary);
     if (!customer?.email) return { sent: false, reason: "This customer has no email address on file" };
     const owner = itinerary.ownerId ? await this.prisma.user.findUnique({ where: { id: itinerary.ownerId }, select: { name: true } }) : null;
     await this.mail.send({
@@ -422,7 +422,7 @@ export class ItinerariesService {
     await this.audit.record({ action: "itinerary.accepted", entityType: "Itinerary", entityId: itinerary.id, after: { acceptedBy: name } });
 
     const owner = itinerary.ownerId ? await this.prisma.user.findUnique({ where: { id: itinerary.ownerId }, select: { name: true, email: true } }) : null;
-    const customer = itinerary.customerId ? await this.prisma.customer.findUnique({ where: { id: itinerary.customerId }, select: { fullName: true } }) : null;
+    const customer = await this.recipient(itinerary);
     const message = emails.itineraryAcceptedToStaff({ title: itinerary.title, customerName: customer?.fullName ?? name, url: `${this.config.get("APP_URL")}/admin/itineraries/${itinerary.id}` });
     if (owner) await this.mail.send({ ...message, to: owner.email, toName: owner.name, dedupeKey: `itinerary-accepted:${itinerary.id}:${owner.email}`, entityType: "Itinerary", entityId: itinerary.id });
     await this.mail.sendToStaff(["OPS_MANAGER"], () => ({ ...message, dedupeKey: undefined, entityType: "Itinerary", entityId: itinerary.id }));
@@ -431,7 +431,7 @@ export class ItinerariesService {
 
   private async toPublic(i: Itinerary): Promise<PublicItinerary> {
     const [customer, setting] = await Promise.all([
-      i.customerId ? this.prisma.customer.findUnique({ where: { id: i.customerId }, select: { fullName: true } }) : null,
+      this.recipient(i),
       this.prisma.setting.findUnique({ where: { key: "company.profile" } }),
     ]);
     const company = (setting?.value ?? {}) as { name?: string; phones?: string[]; email?: string };
@@ -460,6 +460,16 @@ export class ItinerariesService {
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  /** Who the quotation is for: its customer, or — before the lead reaches Awaiting payment and gets one — the lead's contact. */
+  private async recipient(i: { customerId: string | null; leadId: string | null }): Promise<{ fullName: string; email: string | null } | null> {
+    if (i.customerId) return this.prisma.customer.findUnique({ where: { id: i.customerId }, select: { fullName: true, email: true } });
+    if (i.leadId) {
+      const lead = await this.prisma.lead.findUnique({ where: { id: i.leadId }, select: { contactName: true, email: true } });
+      if (lead) return { fullName: lead.contactName, email: lead.email };
+    }
+    return null;
+  }
 
   private async findByToken(token: string) {
     const itinerary = await this.prisma.itinerary.findUnique({ where: { shareToken: token } });

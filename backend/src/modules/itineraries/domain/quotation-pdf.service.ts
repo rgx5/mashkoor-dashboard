@@ -23,9 +23,11 @@ export class QuotationPdfService {
 
   async render(actor: RequestUser, id: string, breakup = true): Promise<{ fileName: string; data: Buffer }> {
     const it = await this.itineraries.get(actor, id);
-    const [profile, customer] = await Promise.all([
+    // The customer when there is one; before Awaiting payment a lead has no customer yet, so "Prepared for" falls back to the lead's contact.
+    const [profile, customer, lead] = await Promise.all([
       this.company.get(),
-      it.customer ? this.prisma.customer.findUnique({ where: { id: it.customer.id }, select: { fullName: true, phone: true } }) : null,
+      it.customer ? this.prisma.customer.findUnique({ where: { id: it.customer.id }, select: { fullName: true, phone: true, email: true } }) : null,
+      !it.customer && it.lead ? this.prisma.lead.findUnique({ where: { id: it.lead.id }, select: { contactName: true, phone: true, email: true } }) : null,
     ]);
     // The relationship manager chosen on the quotation, or whoever owns it.
     const owner = it.relationshipManager ?? it.owner;
@@ -39,7 +41,7 @@ export class QuotationPdfService {
       refNo: it.refNo,
       headerNote: `${dateTime.format(new Date(it.createdAt)).replace(",", "")}${it.validUntil ? `   ·   Valid till ${formatPdfDate(it.validUntil)}` : ""}`,
       customerLabel: "Prepared for",
-      customer: { name: customer?.fullName ?? it.customer?.fullName ?? "—", phone: customer?.phone },
+      customer: { name: customer?.fullName ?? lead?.contactName ?? it.customer?.fullName ?? "—", phone: customer?.phone ?? lead?.phone, email: customer?.email ?? lead?.email },
       facts: [
         ["Tour", it.title],
         ["Destination", it.destination ?? ""],
