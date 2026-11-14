@@ -86,6 +86,11 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
   const BIG = 14;
   const BLACK = "#000000";
   const GREY = "#333333";
+  // Table borders and rules print lighter than body text, so the page doesn't read as a grid of heavy black lines.
+  const LINE_COLOR = "#999999";
+  // The app's plum accent, used only on table header rows so they read as a group at a glance.
+  const ACCENT = "#7a1a5e";
+  const ACCENT_BG = "#f3e1ec";
   const RULE = 0.9;
   const PAD = 6;
 
@@ -106,16 +111,24 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
     font(bold).fontSize(size);
     return doc.heightOfString(s || " ", { width: w });
   };
-  const rect = (x: number, y: number, w: number, h: number) => doc.rect(x, y, w, h).lineWidth(RULE).strokeColor(BLACK).stroke();
+  const rect = (x: number, y: number, w: number, h: number) => doc.rect(x, y, w, h).lineWidth(RULE).strokeColor(LINE_COLOR).stroke();
   const vlines = (xs: number[], y: number, h: number) => {
-    for (const x of xs) doc.moveTo(x, y).lineTo(x, y + h).lineWidth(RULE).strokeColor(BLACK).stroke();
+    for (const x of xs) doc.moveTo(x, y).lineTo(x, y + h).lineWidth(RULE).strokeColor(LINE_COLOR).stroke();
+  };
+  /** A table's header row: tinted and bordered, so it reads as one group against the plain body rows below it. */
+  const headRow = (x: number, y: number, w: number, h: number) => {
+    doc.rect(x, y, w, h).fill(ACCENT_BG);
+    rect(x, y, w, h);
   };
   const section = (heading: string) => {
     // Keep a heading together with its first rows instead of stranding it at the foot of a page.
     ensure(100);
     doc.y += 16;
-    write(heading.toUpperCase(), M, doc.y, { w: W, bold: true, spacing: 1, oneLine: true });
-    doc.y += 20;
+    const y0 = doc.y;
+    const label = heading.toUpperCase();
+    write(label, M, y0, { w: W, bold: true, spacing: 1, oneLine: true });
+    // pdfkit moves doc.y past the text on its own; set it explicitly so the table sits a fixed, small distance under the heading.
+    doc.y = y0 + heightOf(label, W, true) + 6;
   };
 
   /** A table with a border round every cell: a bold header row, then one row per entry. Rows wrap and never split across pages. */
@@ -129,9 +142,9 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
     const head = () => {
       const h = Math.max(...columns.map((c) => heightOf(c.label, c.width - PAD * 2, true))) + PAD * 2;
       const y0 = doc.y;
-      rect(M, y0, W, h);
+      headRow(M, y0, W, h);
       vlines(xs.slice(1), y0, h);
-      columns.forEach((c, i) => write(c.label, xs[i]! + PAD, y0 + PAD, { w: c.width - PAD * 2, bold: true, align: c.align }));
+      columns.forEach((c, i) => write(c.label, xs[i]! + PAD, y0 + PAD, { w: c.width - PAD * 2, bold: true, align: c.align, color: ACCENT }));
       doc.y = y0 + h;
     };
     const rowHeight = (r: string[]) => Math.max(...r.map((c, i) => heightOf(c, columns[i]!.width - PAD * 2))) + PAD * 2;
@@ -163,17 +176,16 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
   const logo = findLogo(profile.logoDataUrl);
   if (logo) {
     try {
-      doc.image(logo, M, 30, { fit: [120, 56] });
+      doc.image(logo, M, 24, { fit: [180, 76] });
     } catch {
       /* an unreadable logo just leaves the header without one */
     }
   } else {
     write(profile.legalName ?? profile.name, M, 40, { w: W * 0.5, bold: true, size: BIG, oneLine: true });
   }
-  write(d.kind, M + W * 0.5, 30, { w: W * 0.5, align: "right", color: GREY, spacing: 3, oneLine: true });
   write(d.refNo, M + W * 0.5, 46, { w: W * 0.5, align: "right", bold: true, size: BIG, oneLine: true });
   write(d.headerNote, M + W * 0.5, 68, { w: W * 0.5, align: "right", color: GREY, oneLine: true });
-  doc.y = 104;
+  doc.y = 110;
 
   // ── Customer / from ───────────────────────────────────────────────────
   const half = W / 2;
@@ -253,9 +265,9 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
   const pricingHead = () => {
     const y0 = doc.y;
     const h = SIZE + PAD * 2 + 2;
-    rect(M, y0, W, h);
+    headRow(M, y0, W, h);
     vlines(pxs.slice(1), y0, h);
-    pc.forEach((c, i) => write(c.label, pxs[i]! + PAD, y0 + PAD, { w: c.w - PAD * 2, bold: true, align: c.align, oneLine: true }));
+    pc.forEach((c, i) => write(c.label, pxs[i]! + PAD, y0 + PAD, { w: c.w - PAD * 2, bold: true, align: c.align, oneLine: true, color: ACCENT }));
     doc.y = y0 + h;
   };
   pricingHead();
@@ -433,7 +445,7 @@ export async function renderLineDocument(profile: CompanyProfile, d: LineDocumen
     doc.switchToPage(range.start + i);
     // The footer sits inside the bottom margin; without this pdfkit would start a new page for it.
     doc.page.margins.bottom = 0;
-    doc.moveTo(M, doc.page.height - 40).lineTo(M + W, doc.page.height - 40).lineWidth(RULE).strokeColor(BLACK).stroke();
+    doc.moveTo(M, doc.page.height - 40).lineTo(M + W, doc.page.height - 40).lineWidth(RULE).strokeColor(LINE_COLOR).stroke();
     write(d.footer, M, doc.page.height - 30, { w: W - 90, color: GREY, oneLine: true });
     write(`Page ${i + 1} of ${range.count}`, M + W - 90, doc.page.height - 30, { w: 90, align: "right", color: GREY, oneLine: true });
   }

@@ -7,7 +7,7 @@ export { useCurrencies } from "./api";
 export const currenciesModule: AppModule = {
   id: "currencies",
   admin: {
-    nav: [{ label: "Currencies", to: "currencies", icon: Coins, can: ["read", "Currency"], feature: "currencies", group: "Inventory" }],
+    nav: [{ label: "Currencies", to: "currencies", icon: Coins, can: ["read", "Currency"], feature: "currencies", group: "Administration" }],
     routes: [{ path: "currencies", lazy: async () => ({ Component: (await import("./admin/CurrenciesPage")).CurrenciesPage }) }],
   },
 };

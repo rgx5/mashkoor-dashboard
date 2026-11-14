@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+**/dist
+.turbo
+.git
+.claude
+**/.env
+**/.env.*
+backend/storage
+backend/uploads
+deploy
+docs
+**/*.log

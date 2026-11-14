@@ -3,7 +3,7 @@ import { ArrowRight, BedDouble, Bus, Plane, Search } from "lucide-react";
 import { useState } from "react";
 import { formatDate, formatDateTime, formatINR } from "@/core/format";
 import { Button } from "@/core/ui/Button";
-import { inputClass } from "@/core/ui/form";
+import { DateInput, inputClass } from "@/core/ui/form";
 import { Spinner } from "@/core/ui/Spinner";
 import { useQuoteFlights, useQuoteRooms, useQuoteTransport } from "../api";
 
@@ -89,10 +89,10 @@ export function InventoryPicker({
               <input className={inputClass} placeholder="Any — e.g. Voco or Makkah" value={city} onChange={(e) => setCity(e.target.value)} />
             </Filter>
             <Filter label="Check-in">
-              <input type="date" className={inputClass} value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
+              <DateInput value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
             </Filter>
             <Filter label="Check-out">
-              <input type="date" className={inputClass} min={checkIn || undefined} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
+              <DateInput min={checkIn || undefined} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
             </Filter>
           </div>
         ) : kind === "TRANSPORT" ? (
@@ -113,7 +113,7 @@ export function InventoryPicker({
               <input className={inputClass} maxLength={3} placeholder="Any, e.g. JED" value={destination} onChange={(e) => setDestination(e.target.value.toUpperCase())} />
             </Filter>
             <Filter label="On or after">
-              <input type="date" className={inputClass} value={from} onChange={(e) => setFrom(e.target.value)} />
+              <DateInput value={from} onChange={(e) => setFrom(e.target.value)} />
             </Filter>
           </div>
         )}

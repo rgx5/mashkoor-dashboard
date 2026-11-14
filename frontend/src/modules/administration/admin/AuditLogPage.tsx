@@ -5,7 +5,7 @@ import { useSearchParams } from "react-router";
 import { errorMessage } from "@/core/api/errors";
 import { formatDateTime } from "@/core/format";
 import { DataTable, type Column } from "@/core/ui/DataTable";
-import { inputClass } from "@/core/ui/form";
+import { DateInput, inputClass } from "@/core/ui/form";
 import { PageHeader } from "@/core/ui/layout";
 import { useAuditEntityTypes, useAuditLog } from "../api";
 
@@ -79,8 +79,8 @@ export function AuditLogPage() {
             </option>
           ))}
         </select>
-        <input type="date" aria-label="From date" value={from} onChange={(e) => set("from", e.target.value)} className={`${inputClass} w-auto`} />
-        <input type="date" aria-label="To date" value={to} min={from || undefined} onChange={(e) => set("to", e.target.value)} className={`${inputClass} w-auto`} />
+        <DateInput aria-label="From date" value={from} onChange={(e) => set("from", e.target.value)} className="w-auto" />
+        <DateInput aria-label="To date" value={to} min={from || undefined} onChange={(e) => set("to", e.target.value)} className="w-auto" />
       </div>
       <DataTable
         columns={columns}

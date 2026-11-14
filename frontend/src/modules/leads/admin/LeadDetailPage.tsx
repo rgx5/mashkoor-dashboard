@@ -11,6 +11,7 @@ import {
   TRIP_TYPE_LABELS,
   TRIP_TYPES,
   leadUpdateSchema,
+  nightsBetween,
   whatsappUrl,
   type LeadDetail,
   type LeadStage,
@@ -41,6 +42,13 @@ import { useAssignAccountant, useAssignLead, useConvertLead, useLead, useUpdateL
 import { StageChangeDialog, type PendingStageChange } from "../StageChangeDialog";
 
 const PATH: LeadStage[] = [...OPEN_LEAD_STAGES, "WON"];
+
+/** A sensible starting title for the quotation, built from what was already captured on the lead. */
+const quotationTitle = (lead: Pick<LeadDetail, "destination" | "productType" | "travelFrom" | "travelTo">) => {
+  const place = lead.destination || PRODUCT_TYPE_LABELS[lead.productType];
+  const nights = nightsBetween(lead.travelFrom, lead.travelTo);
+  return nights ? `${nights} night${nights > 1 ? "s" : ""} ${place}` : place;
+};
 
 export function LeadDetailPage() {
   const { id = "" } = useParams();
@@ -124,6 +132,7 @@ export function LeadDetailPage() {
                   destination: lead.destination ?? "",
                   adults: String(lead.adults),
                   children: String(lead.children),
+                  title: quotationTitle(lead),
                 }).toString()}`}
                 className={buttonClass("secondary", "sm")}
               >
