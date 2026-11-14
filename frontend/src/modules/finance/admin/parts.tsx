@@ -1,16 +1,16 @@
 import { LEDGER_KIND_LABELS, type LedgerRow } from "@mashkoor/shared";
 import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { cn } from "@/core/ui/cn";
-import { inputClass } from "@/core/ui/form";
+import { DateInput } from "@/core/ui/form";
 import { PRESETS } from "@/modules/reports/shared";
 
 /** From / to dates with the usual quick ranges. */
 export function RangeBar({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <input type="date" aria-label="From" value={from} max={to} onChange={(e) => e.target.value && onChange(e.target.value, to)} className={`${inputClass} w-40`} />
+      <DateInput aria-label="From" value={from} max={to} onChange={(e) => e.target.value && onChange(e.target.value, to)} className="w-40" />
       <span className="text-sm text-ink-500">to</span>
-      <input type="date" aria-label="To" value={to} min={from} onChange={(e) => e.target.value && onChange(from, e.target.value)} className={`${inputClass} w-40`} />
+      <DateInput aria-label="To" value={to} min={from} onChange={(e) => e.target.value && onChange(from, e.target.value)} className="w-40" />
       <div className="flex flex-wrap gap-1.5">
         {PRESETS.map((p) => {
           const [f, t] = p.range();

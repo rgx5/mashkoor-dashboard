@@ -50,10 +50,13 @@ export function SharedItineraryPage() {
 
   const accepted = trip.status === "ACCEPTED" || trip.status === "CONVERTED";
   const total = trip.lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0) || trip.totalPrice;
+  // A "1. Title" line on its own gets a heading treatment, like the PDF; the rest reads as its body text.
+  const termLines = (trip.terms ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
 
   return (
     <div className="min-h-dvh bg-surface print:bg-white">
-      <header className="bg-plum-950 px-4 py-4 text-white print:bg-white print:text-plum-900">
+      <header className="relative overflow-hidden bg-plum-950 px-4 py-5 text-white print:bg-white print:py-3 print:text-plum-900">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-gold-400 via-gold-300 to-gold-400 print:hidden" aria-hidden />
         <div className="mx-auto flex max-w-3xl items-center justify-between">
           <BrandName tone="onDark" size="md" className="print:text-plum-800" />
           <Button variant="secondary" size="sm" className="print:hidden" onClick={() => window.print()}>
@@ -63,11 +66,23 @@ export function SharedItineraryPage() {
       </header>
 
       <main className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-        <section className="rounded-2xl border border-line bg-white p-6">
-          <p className="text-xs font-semibold tracking-wide text-plum-600 uppercase">{PRODUCT_TYPE_LABELS[trip.productType]}</p>
-          <h1 className="mt-1 font-display text-2xl font-semibold text-ink-900">{trip.title}</h1>
-          {trip.customerName && <p className="mt-1 text-sm text-ink-500">Prepared for {trip.customerName}</p>}
-          <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-ink-700">
+        <section className="overflow-hidden rounded-2xl border border-line bg-white">
+          <div className="border-b border-line bg-plum-50/60 px-6 py-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold tracking-wide text-plum-600 uppercase">{PRODUCT_TYPE_LABELS[trip.productType]}</p>
+                <h1 className="mt-1 font-display text-2xl font-semibold text-ink-900">{trip.title}</h1>
+                {trip.customerName && <p className="mt-1 text-sm text-ink-500">Prepared for {trip.customerName}</p>}
+              </div>
+              {accepted && (
+                <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 print:hidden">
+                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Accepted
+                </span>
+              )}
+              {!accepted && trip.expired && <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700 print:hidden">Expired</span>}
+            </div>
+          </div>
+          <dl className="flex flex-wrap gap-x-8 gap-y-3 px-6 py-4 text-sm text-ink-700">
             {trip.destination && (
               <div className="flex items-center gap-1.5">
                 <MapPin className="h-4 w-4 text-plum-600" aria-hidden /> {trip.destination}
@@ -87,12 +102,12 @@ export function SharedItineraryPage() {
 
         {trip.days.length > 0 && (
           <section className="rounded-2xl border border-line bg-white p-6">
-            <h2 className="mb-4 text-base font-semibold">Day by day</h2>
-            <ol className="space-y-5">
+            <h2 className="mb-5 text-base font-semibold">Day by day</h2>
+            <ol className="relative space-y-5 before:absolute before:top-1 before:bottom-1 before:left-[17px] before:w-px before:bg-line">
               {trip.days.map((d) => (
-                <li key={d.day} className="flex gap-4">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-plum-50 text-sm font-semibold text-plum-700">{d.day}</span>
-                  <div>
+                <li key={d.day} className="relative flex gap-4">
+                  <span className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-plum-100 bg-plum-50 text-sm font-semibold text-plum-700">{d.day}</span>
+                  <div className="pt-1.5">
                     <h3 className="text-sm font-semibold text-ink-900">{d.title}</h3>
                     {d.description && <p className="mt-1 text-sm whitespace-pre-line text-ink-700">{d.description}</p>}
                   </div>
@@ -106,8 +121,10 @@ export function SharedItineraryPage() {
           <section className="grid gap-4 sm:grid-cols-2">
             {trip.inclusions.length > 0 && (
               <div className="rounded-2xl border border-line bg-white p-6">
-                <h2 className="mb-3 text-base font-semibold">Included</h2>
-                <ul className="space-y-1.5 text-sm">
+                <h2 className="mb-3 flex items-center gap-1.5 text-base font-semibold text-emerald-700">
+                  <Check className="h-4 w-4" aria-hidden /> Included
+                </h2>
+                <ul className="space-y-2 text-sm">
                   {trip.inclusions.map((line) => (
                     <li key={line} className="flex gap-2">
                       <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden /> {line}
@@ -118,8 +135,10 @@ export function SharedItineraryPage() {
             )}
             {trip.exclusions.length > 0 && (
               <div className="rounded-2xl border border-line bg-white p-6">
-                <h2 className="mb-3 text-base font-semibold">Not included</h2>
-                <ul className="space-y-1.5 text-sm">
+                <h2 className="mb-3 flex items-center gap-1.5 text-base font-semibold text-red-700">
+                  <X className="h-4 w-4" aria-hidden /> Not included
+                </h2>
+                <ul className="space-y-2 text-sm">
                   {trip.exclusions.map((line) => (
                     <li key={line} className="flex gap-2">
                       <X className="mt-0.5 h-4 w-4 shrink-0 text-red-500" aria-hidden /> {line}
@@ -131,32 +150,41 @@ export function SharedItineraryPage() {
           </section>
         )}
 
-        <section className="rounded-2xl border border-line bg-white p-6">
-          <h2 className="mb-3 text-base font-semibold">Pricing</h2>
+        <section className="overflow-hidden rounded-2xl border border-line bg-white">
+          <h2 className="px-6 pt-6 pb-3 text-base font-semibold">Pricing</h2>
           {trip.lines.length > 0 && (
-            <ul className="divide-y divide-line text-sm">
+            <ul className="divide-y divide-line px-6 text-sm">
               {trip.lines.map((l, i) => (
-                <li key={i} className="flex justify-between gap-3 py-2">
+                <li key={i} className="flex justify-between gap-3 py-2.5">
                   <span>
                     {l.description}
                     {l.quantity > 1 && <span className="text-ink-500"> × {l.quantity}</span>}
                   </span>
-                  <span className="font-semibold">{formatINR(l.quantity * l.unitPrice)}</span>
+                  <span className="font-semibold tabular-nums">{formatINR(l.quantity * l.unitPrice)}</span>
                 </li>
               ))}
             </ul>
           )}
-          <p className="mt-3 flex items-baseline justify-between border-t border-line pt-3">
+          <div className="mt-2 flex items-baseline justify-between bg-plum-50/60 px-6 py-4">
             <span className="text-sm font-semibold">Total</span>
-            <span className="font-display text-2xl font-semibold text-plum-700">{formatINR(total)}</span>
-          </p>
-          {trip.validUntil && !accepted && <p className="mt-1 text-right text-xs text-ink-500">{trip.expired ? "This quote has expired" : `Valid until ${formatDate(trip.validUntil)}`}</p>}
+            <span className="font-display text-2xl font-semibold text-plum-700 tabular-nums">{formatINR(total)}</span>
+          </div>
+          {trip.validUntil && !accepted && <p className="px-6 pb-4 text-right text-xs text-ink-500">{trip.expired ? "This quote has expired" : `Valid until ${formatDate(trip.validUntil)}`}</p>}
         </section>
 
-        {trip.terms && (
+        {termLines.length > 0 && (
           <section className="rounded-2xl border border-line bg-white p-6">
-            <h2 className="mb-2 text-base font-semibold">Terms</h2>
-            <p className="text-xs whitespace-pre-line text-ink-500">{trip.terms}</p>
+            <h2 className="mb-3 text-base font-semibold">Terms &amp; conditions</h2>
+            <div className="space-y-2 text-xs text-ink-500">
+              {termLines.map((line, i) => {
+                const isTitle = /^\d+\.\s+\S/.test(line) && line.length < 70;
+                return (
+                  <p key={i} className={isTitle ? "mt-3 text-sm font-semibold text-ink-900 first:mt-0" : undefined}>
+                    {line}
+                  </p>
+                );
+              })}
+            </div>
           </section>
         )}
 

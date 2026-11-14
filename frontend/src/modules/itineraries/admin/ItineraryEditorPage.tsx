@@ -26,7 +26,7 @@ import { formatDate, formatDateTime, formatINR } from "@/core/format";
 import { useAbility } from "@/core/rbac/ability";
 import { Button, buttonClass } from "@/core/ui/Button";
 import { Dialog } from "@/core/ui/Dialog";
-import { Field, FormError, inputClass, SelectField, TextareaField, TextField } from "@/core/ui/form";
+import { DateInput, Field, FormError, inputClass, SelectField, TextareaField, TextField } from "@/core/ui/form";
 import { Badge, Card } from "@/core/ui/layout";
 import { BackLink } from "@/core/ui/misc";
 import { FullPageSpinner } from "@/core/ui/Spinner";
@@ -156,6 +156,7 @@ export function ItineraryEditorPage() {
     isTemplate: params.get("template") === "1",
     customerId: params.get("customerId") ?? "",
     leadId: params.get("leadId") ?? "",
+    title: params.get("title") ?? "",
     destination: params.get("destination") ?? "",
     productType: (PRODUCT_TYPES as readonly string[]).includes(params.get("productType") ?? "") ? (params.get("productType") as ProductType) : "HOLIDAY",
     tripType: (TRIP_TYPES as readonly string[]).includes(params.get("tripType") ?? "") ? (params.get("tripType") as TripType) : "FIT",
@@ -365,7 +366,7 @@ export function ItineraryEditorPage() {
               {form.paymentSchedule.map((p, i) => (
                 <li key={i} className="grid grid-cols-[1fr_150px_120px_32px] items-center gap-2">
                   <input aria-label="Instalment name" className={inputClass} disabled={!canEdit} value={p.label} onChange={(e) => patch({ paymentSchedule: form.paymentSchedule.map((x, n) => (n === i ? { ...x, label: e.target.value } : x)) })} />
-                  <input aria-label="Due date" type="date" className={inputClass} disabled={!canEdit} value={p.dueDate ?? ""} onChange={(e) => patch({ paymentSchedule: form.paymentSchedule.map((x, n) => (n === i ? { ...x, dueDate: e.target.value || null } : x)) })} />
+                  <DateInput aria-label="Due date" disabled={!canEdit} value={p.dueDate ?? ""} onChange={(e) => patch({ paymentSchedule: form.paymentSchedule.map((x, n) => (n === i ? { ...x, dueDate: e.target.value || null } : x)) })} />
                   <input aria-label="Amount" type="number" min={0} className={inputClass} disabled={!canEdit} value={p.amount} onChange={(e) => patch({ paymentSchedule: form.paymentSchedule.map((x, n) => (n === i ? { ...x, amount: Number(e.target.value) } : x)) })} />
                   {canEdit && (
                     <button type="button" aria-label="Remove instalment" className="text-red-600" onClick={() => patch({ paymentSchedule: form.paymentSchedule.filter((_, n) => n !== i) })}>

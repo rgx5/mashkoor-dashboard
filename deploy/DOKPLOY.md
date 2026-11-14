@@ -1,17 +1,49 @@
-# Deploying the dashboard on Dokploy
+# Deploying the Dashboard on Dokploy (Unified Docker Compose)
 
-This replaces the nginx + pm2 + host-Postgres setup described in `README.md` for the **dashboard only** (API + React app).
-The public website (Next.js, separate repo) is not covered here.
+This deploys the complete Mashkoor Dashboard (**PostgreSQL 17 + NestJS Backend + React Frontend**) as a single Docker Compose stack in Dokploy.
 
 ```
-Internet ─► Traefik (Dokploy, Let's Encrypt)
-             mashkoor.rapidrabbit.cloud
-              ├─ /api  ─► mashkoor-api  (backend/Dockerfile, port 4000, 1 replica) ─► mashkoor-db (Postgres 17)
-              └─ /     ─► mashkoor-web  (frontend/Dockerfile, nginx, port 80)
+Internet ─► Traefik (Dokploy) ─► mashkoor-web (Port 80)
+                                   ├─ /      ──► React SPA (Vite)
+                                   └─ /api/* ──► Proxied internally to mashkoor-api (Port 4000) ──► mashkoor-postgres
 ```
 
-One hostname means the browser sees a single origin, so the httpOnly refresh cookie and `CORS_ORIGINS` work unchanged
-and the frontend's relative `/api/v1/...` calls need no build-time API URL.
+---
+
+## 1. Quick Deploy Steps in Dokploy
+
+1. In Dokploy, click **Create Service** → **Compose**.
+2. **Name:** `mashkoor`
+3. **Source:** Select **GitHub**, choose repo `mashkoor-dashboard`, branch `main` (or your active branch).
+4. **Compose Path:** `docker-compose.prod.yml`
+5. Go to the **Environment** tab:
+   - Copy the template from `.env.production.example`.
+   - Fill in your values (make sure **`FIELD_ENCRYPTION_KEY`** matches your old server if migrating!).
+6. Go to the **Domains** tab:
+   - Add your domain: e.g. `mashkoor.rapidrabbit.cloud` or `app.mashkoor.co.in`.
+   - Port: `80` (points to `frontend`).
+   - Enable HTTPS (Let's Encrypt).
+7. Click **Deploy**!
+
+The database will initialize, run `prisma migrate deploy` automatically, and launch the application.
+
+---
+
+## 2. Restoring Migrated Data (If migrating from Old VPS)
+
+1. Dump and copy your data from the old server:
+   ```bash
+   docker cp /tmp/mashkoor-db.dump mashkoor-postgres:/tmp/
+   docker exec -i mashkoor-postgres pg_restore -U mashkoor -d mashkoor --clean --if-exists /tmp/mashkoor-db.dump
+   ```
+2. Restore uploaded files into the volume:
+   ```bash
+   docker run --rm -v mashkoor_uploads_data:/data -v /tmp:/backup alpine tar xzf /backup/mashkoor-uploads.tar.gz --strip-components=1 -C /data
+   ```
+3. Restart backend:
+   ```bash
+   docker restart mashkoor-api
+   ```
 
 | Old setup | Dokploy |
 |---|---|

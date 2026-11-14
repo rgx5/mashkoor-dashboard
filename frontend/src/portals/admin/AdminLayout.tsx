@@ -15,6 +15,9 @@ import { adminNav } from "./registry";
 const STORAGE_KEY = "mk.sidebar.openGroup";
 const RAIL_KEY = "mk.sidebar.rail";
 
+/** Fixed sidebar order. Anything not listed here (e.g. Reports) falls in after, in its original order. */
+const GROUP_ORDER = ["CRM", "Inventory", "Operations", "Accounts", "Partners", "Catalog", "Administration"];
+
 /** The one sidebar group the user last had open. Best-effort: storage can be blocked, so it never throws. */
 function loadOpenGroup(): string | null {
   try {
@@ -45,7 +48,7 @@ function AdminShell() {
   const pageMeta = usePageMeta();
   const [open, setOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(loadRailCollapsed);
-  const [railHovered, setRailHovered] = useState(false);
+  const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   const { pathname } = useLocation();
   const ability = useAbility("admin");
   const { data: summary } = useAdminDashboard();
@@ -53,7 +56,12 @@ function AdminShell() {
   // Super admins see everything; everyone else only the areas switched on for them (the dashboard home is always there).
   const hasFeature = (feature?: string) => !feature || user?.role === "SUPER_ADMIN" || Boolean(user?.features?.includes(feature));
   const items = adminNav.filter((item) => hasFeature(item.feature) && (!item.can || ability.can(item.can[0], item.can[1])));
-  const groups = [...new Set(items.map((i) => i.group ?? "Main"))];
+  const groups = [...new Set(items.map((i) => i.group ?? "Main"))].sort((a, b) => {
+    if (a === "Main" || b === "Main") return a === b ? 0 : a === "Main" ? -1 : 1;
+    const ai = GROUP_ORDER.indexOf(a);
+    const bi = GROUP_ORDER.indexOf(b);
+    return (ai === -1 ? GROUP_ORDER.length : ai) - (bi === -1 ? GROUP_ORDER.length : bi);
+  });
   const dueTasks = summary ? summary.tasks.dueToday + summary.tasks.overdue : 0;
 
   // Whichever group holds the current page — that's the one that should be open, so you never lose your place.
@@ -90,97 +98,153 @@ function AdminShell() {
       return next;
     });
 
-  /** Picking a page while the rail is collapsed (or hover-expanded) pins it open, so it doesn't snap shut on you. */
-  const expandRailOnClick = () => {
+  const closeOverlays = () => {
     setOpen(false);
-    if (!railCollapsed) return;
-    setRailCollapsed(false);
-    try {
-      localStorage.setItem(RAIL_KEY, "0");
-    } catch {
-      /* preference just won't persist */
-    }
+    setHoveredGroup(null);
   };
 
-  /** `rail`: the persistent desktop sidebar, which can shrink to icons only. The mobile drawer is always full width. */
-  const renderSidebar = (rail: boolean) => (
+  const mainItems = items.filter((i) => (i.group ?? "Main") === "Main");
+  const namedGroups = groups.filter((g) => g !== "Main");
+
+  /** The expanded sidebar: full-width links, grouped under collapsible headers. Used both docked and in the mobile drawer. */
+  const renderSidebar = () => (
     <nav aria-label="Admin" className="flex h-full flex-col">
-      <div className={cn("flex h-16 items-center gap-2", rail ? "justify-center px-2" : "px-5")}>
-        {!rail && (
-          <Link to="/admin" onClick={() => setOpen(false)} aria-label="Mashkoor Tourism home" className="mr-auto">
-            <BrandName tone="onDark" />
-          </Link>
-        )}
+      <div className="flex h-16 items-center gap-2 px-5">
+        <Link to="/admin" onClick={() => setOpen(false)} aria-label="Mashkoor Tourism home" className="mr-auto">
+          <BrandName tone="onDark" />
+        </Link>
         <button
           type="button"
           onClick={toggleRail}
           className="hidden rounded-lg p-1.5 text-plum-200 transition hover:bg-white/10 hover:text-white lg:block"
-          aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
-          title={rail ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label="Collapse sidebar"
+          title="Collapse sidebar"
         >
-          {rail ? <PanelLeftOpen className="h-4 w-4" aria-hidden /> : <PanelLeftClose className="h-4 w-4" aria-hidden />}
+          <PanelLeftClose className="h-4 w-4" aria-hidden />
         </button>
       </div>
       <div className="flex-1 space-y-1.5 overflow-y-auto px-2.5 py-2">
-        <NavLink to="/admin" end className={(s) => navClass(s, rail)} onClick={expandRailOnClick} title={rail ? "Dashboard" : undefined}>
-          <LayoutDashboard className="h-4 w-4 shrink-0" aria-hidden /> {!rail && "Dashboard"}
+        <NavLink to="/admin" end className={(s) => navClass(s)} onClick={() => setOpen(false)}>
+          <LayoutDashboard className="h-4 w-4 shrink-0" aria-hidden /> Dashboard
         </NavLink>
-        {rail
-          ? // Collapsed rail: a flat icon list, no group headers — there's no room for them.
-            items.map((item) => (
-              <NavLink key={item.to} to={`/admin/${item.to}`} className={(s) => navClass(s, rail)} onClick={expandRailOnClick} title={item.label}>
-                <item.icon className="h-4 w-4 shrink-0" aria-hidden />
-              </NavLink>
-            ))
-          : groups.map((group) => {
-              const groupItems = items.filter((i) => (i.group ?? "Main") === group);
-              const expanded = group === "Main" || openGroup === group;
-              return (
-                <div key={group}>
-                  {group !== "Main" && (
-                    <button
-                      type="button"
-                      onClick={() => toggle(group)}
-                      aria-expanded={expanded}
-                      className="mt-2.5 flex w-full items-center justify-between rounded-lg px-3 py-1 text-[11px] font-bold tracking-wider text-plum-300 uppercase transition hover:bg-white/5 hover:text-white"
-                    >
-                      {group}
-                      <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !expanded && "-rotate-90")} aria-hidden />
-                    </button>
-                  )}
-                  {expanded && (
-                    <div className="mt-1 space-y-0.5">
-                      {groupItems.map((item) => (
-                        <NavLink key={item.to} to={`/admin/${item.to}`} className={(s) => navClass(s, rail)} onClick={expandRailOnClick}>
-                          <item.icon className="h-4 w-4 shrink-0" aria-hidden /> {item.label}
-                        </NavLink>
-                      ))}
-                    </div>
-                  )}
+        {groups.map((group) => {
+          const groupItems = items.filter((i) => (i.group ?? "Main") === group);
+          const expanded = group === "Main" || openGroup === group;
+          return (
+            <div key={group}>
+              {group !== "Main" && (
+                <button
+                  type="button"
+                  onClick={() => toggle(group)}
+                  aria-expanded={expanded}
+                  className="mt-2.5 flex w-full items-center justify-between rounded-lg px-3 py-1 text-[11px] font-bold tracking-wider text-plum-300 uppercase transition hover:bg-white/5 hover:text-white"
+                >
+                  {group}
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !expanded && "-rotate-90")} aria-hidden />
+                </button>
+              )}
+              {expanded && (
+                <div className="mt-1 space-y-0.5">
+                  {groupItems.map((item) => (
+                    <NavLink key={item.to} to={`/admin/${item.to}`} className={(s) => navClass(s)} onClick={() => setOpen(false)}>
+                      <item.icon className="h-4 w-4 shrink-0" aria-hidden /> {item.label}
+                    </NavLink>
+                  ))}
                 </div>
-              );
-            })}
+              )}
+            </div>
+          );
+        })}
       </div>
     </nav>
   );
 
-  // While the rail is collapsed, hovering it temporarily unfolds the full sidebar as an overlay — the layout
-  // (and the persisted preference) stay collapsed; only the visual, on top of the page, expands.
-  const floating = railCollapsed && railHovered;
+  /** Collapsed state, panel 1: a fixed icon-only rail. Ungrouped pages link directly; each named group collapses to one tile. */
+  const renderRail = () => (
+    <nav aria-label="Admin" className="flex h-full flex-col">
+      <div className="flex h-16 items-center justify-center px-2">
+        <button
+          type="button"
+          onClick={toggleRail}
+          className="rounded-lg p-1.5 text-plum-200 transition hover:bg-white/10 hover:text-white"
+          aria-label="Expand sidebar"
+          title="Expand sidebar"
+        >
+          <PanelLeftOpen className="h-4 w-4" aria-hidden />
+        </button>
+      </div>
+      <div className="flex-1 space-y-3 overflow-y-auto px-2.5 py-3">
+        <NavLink to="/admin" end className={(s) => navClass(s, true)} onClick={closeOverlays} onMouseEnter={() => setHoveredGroup(null)} title="Dashboard">
+          <LayoutDashboard className="h-5 w-5 shrink-0" aria-hidden />
+        </NavLink>
+        {mainItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={`/admin/${item.to}`}
+            className={(s) => navClass(s, true)}
+            onClick={closeOverlays}
+            onMouseEnter={() => setHoveredGroup(null)}
+            title={item.label}
+          >
+            <item.icon className="h-5 w-5 shrink-0" aria-hidden />
+          </NavLink>
+        ))}
+        {namedGroups.map((group) => {
+          const groupItems = items.filter((i) => (i.group ?? "Main") === group);
+          const GroupIcon = groupItems[0]?.icon ?? LayoutDashboard;
+          const active = activeGroup === group || hoveredGroup === group;
+          return (
+            <button
+              key={group}
+              type="button"
+              onMouseEnter={() => setHoveredGroup(group)}
+              onFocus={() => setHoveredGroup(group)}
+              onClick={() => setHoveredGroup(group)}
+              aria-haspopup="true"
+              aria-expanded={hoveredGroup === group}
+              title={group}
+              className={cn(
+                "flex w-full items-center justify-center rounded-lg px-2 py-2.5 transition",
+                active ? "bg-plum-700 text-white" : "text-plum-100 hover:bg-white/5 hover:text-white",
+              )}
+            >
+              <GroupIcon className="h-5 w-5 shrink-0" aria-hidden />
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+
+  /** Collapsed state, panel 2: a full-height flyout beside the rail, listing the hovered group's pages. */
+  const renderFlyout = (group: string) => {
+    const groupItems = items.filter((i) => (i.group ?? "Main") === group);
+    return (
+      <nav aria-label={group} className="flex h-full flex-col">
+        <div className="flex h-16 items-center px-4">
+          <span className="text-[11px] font-bold tracking-wider text-plum-300 uppercase">{group}</span>
+        </div>
+        <div className="flex-1 space-y-2 overflow-y-auto px-2.5 py-3">
+          {groupItems.map((item) => (
+            <NavLink key={item.to} to={`/admin/${item.to}`} className={(s) => navClass(s)} onClick={closeOverlays}>
+              <item.icon className="h-5 w-5 shrink-0" aria-hidden /> {item.label}
+            </NavLink>
+          ))}
+        </div>
+      </nav>
+    );
+  };
 
   return (
     <div className={cn("min-h-dvh transition-[padding]", railCollapsed ? "lg:pl-16" : "lg:pl-56")}>
-      <aside
-        onMouseEnter={() => railCollapsed && setRailHovered(true)}
-        onMouseLeave={() => setRailHovered(false)}
-        className={cn(
-          "fixed inset-y-0 left-0 z-50 hidden bg-plum-950 transition-[width] lg:block",
-          railCollapsed ? "w-16" : "w-56",
-          floating && "w-56 shadow-2xl",
-        )}
-      >
-        {renderSidebar(railCollapsed && !railHovered)}
-      </aside>
+      {railCollapsed ? (
+        <div className="fixed inset-y-0 left-0 z-50 hidden lg:flex" onMouseLeave={() => setHoveredGroup(null)}>
+          <aside className="h-full w-16 bg-plum-950">{renderRail()}</aside>
+          {hoveredGroup && <aside className="h-full w-56 border-l border-white/10 bg-plum-950 shadow-2xl">{renderFlyout(hoveredGroup)}</aside>}
+        </div>
+      ) : (
+        <aside className="fixed inset-y-0 left-0 z-50 hidden w-56 bg-plum-950 lg:block">{renderSidebar()}</aside>
+      )}
 
       {/* Mobile drawer */}
       <div className={cn("fixed inset-0 z-50 lg:hidden", open ? "visible" : "invisible")}>
@@ -189,7 +253,7 @@ function AdminShell() {
           <button type="button" onClick={() => setOpen(false)} className="absolute top-4 right-3 rounded-lg p-1.5 text-plum-200 hover:bg-white/10" aria-label="Close menu">
             <X className="h-5 w-5" aria-hidden />
           </button>
-          {renderSidebar(false)}
+          {renderSidebar()}
         </aside>
       </div>
 

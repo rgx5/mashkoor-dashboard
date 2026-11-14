@@ -7,6 +7,11 @@ coverage
 .env
 .env.*
 !.env.example
+!.env.production.example
 .DS_Store
 backend/uploads
 backend/storage
+.env.production.example
+.scratch/crop_top.png
+.scratch/final_page_0.png
+.scratch/final_page_1.png

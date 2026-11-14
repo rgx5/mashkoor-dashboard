@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { formatDate, formatINR } from "@/core/format";
 import { Button } from "@/core/ui/Button";
 import { cn } from "@/core/ui/cn";
-import { inputClass } from "@/core/ui/form";
+import { DateInput } from "@/core/ui/form";
 import { Card, PageHeader } from "@/core/ui/layout";
 import { Spinner } from "@/core/ui/Spinner";
 
@@ -86,11 +86,11 @@ export function ReportShell({
         <div className="mb-5 flex flex-wrap items-end gap-3">
           <label className="text-xs font-semibold text-ink-500">
             From
-            <input type="date" value={data?.period.from ?? from ?? ""} max={data?.period.to} onChange={(e) => onRangeChange(e.target.value, data?.period.to ?? e.target.value)} className={`${inputClass} mt-1 w-40`} />
+            <DateInput value={data?.period.from ?? from ?? ""} max={data?.period.to} onChange={(e) => onRangeChange(e.target.value, data?.period.to ?? e.target.value)} className="mt-1 w-40" />
           </label>
           <label className="text-xs font-semibold text-ink-500">
             To
-            <input type="date" value={data?.period.to ?? to ?? ""} min={data?.period.from} onChange={(e) => onRangeChange(data?.period.from ?? e.target.value, e.target.value)} className={`${inputClass} mt-1 w-40`} />
+            <DateInput value={data?.period.to ?? to ?? ""} min={data?.period.from} onChange={(e) => onRangeChange(data?.period.from ?? e.target.value, e.target.value)} className="mt-1 w-40" />
           </label>
           <div className="flex flex-wrap gap-1.5">
             {PRESETS.map((p) => (
