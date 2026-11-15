@@ -23,12 +23,20 @@ export const DateInput = forwardRef<HTMLInputElement, Omit<ComponentProps<"input
   useEffect(() => {
     if (typeof value === "string") setVal(value);
   }, [value]);
+  // react-hook-form's register() sets the field's starting value by writing straight to the DOM node through its
+  // own ref callback, with no `value`/`defaultValue` prop we'd otherwise see — so when editing something that
+  // already has a date, read it back off the node once it's attached, or the overlay keeps showing the placeholder.
+  const setRefs = (node: HTMLInputElement | null) => {
+    if (typeof ref === "function") ref(node);
+    else if (ref) ref.current = node;
+    if (node && node.value) setVal((v) => v || node.value);
+  };
 
   const overlay = !focused;
   return (
     <div className="relative">
       <input
-        ref={ref}
+        ref={setRefs}
         type="date"
         {...(value === undefined ? { defaultValue } : { value })}
         onChange={(e) => {

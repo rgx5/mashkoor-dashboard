@@ -130,6 +130,8 @@ export function LeadDetailPage() {
                   productType: lead.productType,
                   tripType: lead.tripType,
                   destination: lead.destination ?? "",
+                  travelFrom: lead.travelFrom ?? "",
+                  travelTo: lead.travelTo ?? "",
                   adults: String(lead.adults),
                   children: String(lead.children),
                   title: quotationTitle(lead),
