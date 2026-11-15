@@ -158,6 +158,8 @@ export function ItineraryEditorPage() {
     leadId: params.get("leadId") ?? "",
     title: params.get("title") ?? "",
     destination: params.get("destination") ?? "",
+    travelFrom: params.get("travelFrom") ?? "",
+    travelTo: params.get("travelTo") ?? "",
     productType: (PRODUCT_TYPES as readonly string[]).includes(params.get("productType") ?? "") ? (params.get("productType") as ProductType) : "HOLIDAY",
     tripType: (TRIP_TYPES as readonly string[]).includes(params.get("tripType") ?? "") ? (params.get("tripType") as TripType) : "FIT",
     adults: Number(params.get("adults") ?? 2) || 2,
