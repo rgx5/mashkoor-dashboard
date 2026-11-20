@@ -15,13 +15,15 @@ export const pricingRuleInputSchema = z
     scope: z.enum(PRICING_SCOPES),
     productType: z.enum(PRODUCT_TYPES).nullable().optional(),
     adjustmentType: z.enum(PRICING_ADJUSTMENT_TYPES),
-    value: z.coerce.number().int().min(0),
+    // A percent markup is fractional (e.g. 12.5%); FIXED_MARKUP/FIXED_PRICE are rupee amounts, whole like every other money field.
+    value: z.coerce.number().min(0),
     priority: z.coerce.number().int().min(0).max(999).default(0),
     validFrom: optionalDate,
     validTo: optionalDate,
     active: z.boolean().default(true),
   })
   .refine((v) => v.adjustmentType !== "PERCENT_MARKUP" || v.value <= 500, { path: ["value"], message: "That's an unusually large markup — double-check it" })
+  .refine((v) => v.adjustmentType === "PERCENT_MARKUP" || Number.isInteger(v.value), { path: ["value"], message: "Enter a whole number of rupees" })
   .refine((v) => !v.validFrom || !v.validTo || v.validTo >= v.validFrom, { path: ["validTo"], message: "End date must be after the start date" });
 export type PricingRuleInput = z.input<typeof pricingRuleInputSchema>;
 export type PricingRuleData = z.output<typeof pricingRuleInputSchema>;
@@ -32,13 +34,14 @@ export const pricingRuleUpdateSchema = patchOf(
     scope: z.enum(PRICING_SCOPES),
     productType: z.enum(PRODUCT_TYPES).nullable(),
     adjustmentType: z.enum(PRICING_ADJUSTMENT_TYPES),
-    value: z.coerce.number().int().min(0),
+    value: z.coerce.number().min(0),
     priority: z.coerce.number().int().min(0).max(999),
     validFrom: optionalDate,
     validTo: optionalDate,
     active: z.boolean(),
   }),
-);
+  // Only checked when both fields are in the same PATCH — a lone `{ value: ... }` can't know the rule's existing type.
+).refine((v) => v.adjustmentType === undefined || v.value === undefined || v.adjustmentType === "PERCENT_MARKUP" || Number.isInteger(v.value), { path: ["value"], message: "Enter a whole number of rupees" });
 export type PricingRuleUpdateData = z.output<typeof pricingRuleUpdateSchema>;
 
 export interface PricingRule {

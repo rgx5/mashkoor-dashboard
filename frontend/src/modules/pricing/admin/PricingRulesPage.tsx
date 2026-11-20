@@ -162,10 +162,11 @@ function RuleForm({ rule, onDone }: { rule?: PricingRule; onDone: () => void }) 
   const create = useCreatePricingRule();
   const update = useUpdatePricingRule();
   const [formError, setFormError] = useState<string | null>(null);
-  const { register, handleSubmit, setError, formState } = useForm<FormIn, unknown, FormOut>({
+  const { register, handleSubmit, setError, formState, watch } = useForm<FormIn, unknown, FormOut>({
     resolver: zodResolver(pricingRuleInputSchema),
     defaultValues: rule ?? { scope: "B2C", adjustmentType: "PERCENT_MARKUP", value: 15, priority: 0, active: true },
   });
+  const isPercent = watch("adjustmentType") === "PERCENT_MARKUP";
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
@@ -206,7 +207,7 @@ function RuleForm({ rule, onDone }: { rule?: PricingRule; onDone: () => void }) 
             </option>
           ))}
         </SelectField>
-        <TextField label="Value" type="number" min={0} required hint="Percent, or a rupee amount" error={formState.errors.value?.message} {...register("value")} />
+        <TextField label="Value" type="number" min={0} step={isPercent ? "0.1" : 1} required hint={isPercent ? "Percent — decimals allowed, e.g. 12.5" : "A whole number of rupees"} error={formState.errors.value?.message} {...register("value")} />
         <TextField label="Priority" type="number" min={0} hint="Higher wins when rules tie" {...register("priority")} />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
